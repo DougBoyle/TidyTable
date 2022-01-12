@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.32014.148
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TidyTable", "TidyTable\TidyTable.csproj", "{8CD4014A-591D-415A-9C5D-136D0518991A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8CD4014A-591D-415A-9C5D-136D0518991A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8CD4014A-591D-415A-9C5D-136D0518991A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8CD4014A-591D-415A-9C5D-136D0518991A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8CD4014A-591D-415A-9C5D-136D0518991A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {D4F3C05D-7F2A-4BA2-BE0B-FE87BA9030FB}
+	EndGlobalSection
+EndGlobal
