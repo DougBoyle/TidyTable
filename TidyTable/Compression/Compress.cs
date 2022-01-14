@@ -9,7 +9,7 @@
         public static void CompressFile(string input, string output)
         {
             byte[] inputBuffer = File.ReadAllBytes(input);
-            int outputBufferSize = inputBuffer.Length;
+            int outputBufferSize = inputBuffer.Length * 2;
             byte[] outputBuffer = new byte[outputBufferSize];
             int outputSize;
             
@@ -25,7 +25,7 @@
 
         public static int CompressBytes(byte[] input, int size, byte[] output)
         {
-            return RLE.Compress(input, output, size);
+            return Huffman.Compress(input, output, size);
         }
 
         public static void DeompressFile(string input, string output)
@@ -47,7 +47,26 @@
 
         public static int DecompressBytes(byte[] input, int size, byte[] output)
         {
-            return RLE.Decompress(input, output, size);
+            return Huffman.Decompress(input, output, size);
+        }
+
+        public static bool FileEquals(string file1, string file2)
+        {
+            using FileStream s1 = new(file1, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using FileStream s2 = new(file2, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using BinaryReader b1 = new(s1);
+            using BinaryReader b2 = new(s2);
+            while (true)
+            {
+                byte[] data1 = b1.ReadBytes(64 * 1024);
+                byte[] data2 = b2.ReadBytes(64 * 1024);
+                if (data1.Length != data2.Length)
+                    return false;
+                if (data1.Length == 0)
+                    return true;
+                if (!data1.SequenceEqual(data2))
+                    return false;
+            }
         }
     }
 }
