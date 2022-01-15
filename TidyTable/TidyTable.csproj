@@ -9,6 +9,13 @@
 
   <ItemGroup>
     <Folder Include="Compression\LZMA\" />
+    <Folder Include="Endgames\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Chessington.GameEngine">
+      <HintPath>..\..\Chessington\Chessington.GameEngine\bin\Release\net6.0\Chessington.GameEngine.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
 </Project>
