@@ -72,6 +72,7 @@ namespace TidyTable.Tables
             SubTableEntry?[] WhiteTable = new SubTableEntry?[maxIndex];
             SubTableEntry?[] BlackTable = new SubTableEntry?[maxIndex];
 
+            // TODO: Allow compression in between
             if (!File.Exists(filename)) throw new FileNotFoundException(filename);
             using var stream = File.Open(filename, FileMode.Open);
 

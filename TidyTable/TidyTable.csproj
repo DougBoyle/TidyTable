@@ -9,7 +9,6 @@
 
   <ItemGroup>
     <Folder Include="Compression\LZMA\" />
-    <Folder Include="Endgames\" />
   </ItemGroup>
 
   <ItemGroup>

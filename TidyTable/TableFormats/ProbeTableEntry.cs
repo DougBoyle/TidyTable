@@ -13,6 +13,8 @@ namespace TidyTable.TableFormats
     // Assumption is that normalising/computing an index will also handle mapping back to a move on the original board.
     public class ProbeTableEntry
     {
+        public const uint CompressedSize = 2; // Encoded as a short
+
         public readonly long Index;
         public readonly Outcome Outcome;
         public readonly Move? Move;
@@ -29,14 +31,19 @@ namespace TidyTable.TableFormats
             Outcome = outcome;
             Move = move;
         }
-
+        public ProbeTableEntry(TableEntry entry)
+        {
+            Index = entry.Index;
+            Outcome = entry.Outcome;
+            Move = entry.Move;
+        }
 
         // TODO: For certain games, it may be more efficient ot encode the move just by
         //       the index of the move in GetAllAvailableMoves
         // Includes DTM/DTZ for use when generating other tables
         // [ 2 bit promotion | 6 bit from | 6 bit to | 2 bit outcome ]
         // When a move is a promotion (must determine from the board): 0 = N, 1 = B, 2 = R, 3 = Q
-        private ushort ToShort(byte colouredKnight)
+        public ushort ToShort(byte colouredKnight)
         {
             ushort result = 0;
             if (Move != null)

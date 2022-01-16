@@ -1,4 +1,5 @@
 ﻿using Chessington.GameEngine;
+using Chessington.GameEngine.AI;
 using TidyTable.TableFormats;
 
 namespace TidyTable
@@ -25,4 +26,13 @@ namespace TidyTable
     public delegate byte SquareMapper(byte index);
     // Normalises the board passed in, and returns a method to map normalised squares back to normal ones.
     public delegate SquareMapper BoardNormaliserWithMapping(Board board);
+
+    public static class Delegates
+    {
+        public static void Map(this Move move, SquareMapper mapping)
+        {
+            move.FromIdx = mapping(move.FromIdx);
+            move.ToIdx = mapping(move.ToIdx);
+        }
+    }
 }
