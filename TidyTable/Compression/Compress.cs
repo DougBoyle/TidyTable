@@ -10,37 +10,22 @@
         public static readonly CompressionScheme EncodingScheme = Huffman.Compress;
         public static readonly CompressionScheme DecodingScheme = Huffman.Decompress;
 
+        public delegate int StreamCompressionScheme(byte[] input, BinaryWriter output, int inputLength);
+        public static readonly StreamCompressionScheme StreamEncodingScheme = Huffman.Compress;
+        public static readonly StreamCompressionScheme StreamDecodingScheme = Huffman.Decompress;
+
         public static void CompressToFile(byte[] input, int inputLength, string filename)
         {
-            int outputBufferSize = inputLength * 2;
-            byte[] outputBuffer = new byte[outputBufferSize];
-            int outputSize;
-
-            while ((outputSize = CompressBytes(input, inputLength, outputBuffer)) == 0)
-            {
-                outputBufferSize *= 2;
-                outputBuffer = new byte[outputBufferSize];
-            }
-
-            using var fs = new FileStream(filename, FileMode.Create);
-            fs.Write(outputBuffer, 0, outputSize);
+            var output = new BinaryWriter(new FileStream(filename, FileMode.Create));
+            CompressBytes(input, inputLength, output);
+            output.Flush();
         }
 
-        // Buffer returned is resized to exact length of output
-        public static byte[] Decompress(string input, uint initialOutputSize)
+        public static void Decompress(string input, BinaryWriter output)
         {
             byte[] inputBuffer = File.ReadAllBytes(input);
-            byte[] outputBuffer = new byte[initialOutputSize];
-            int outputSize;
-
-            while ((outputSize = DecompressBytes(inputBuffer, inputBuffer.Length, outputBuffer)) == 0)
-            {
-                initialOutputSize *= 2;
-                outputBuffer = new byte[initialOutputSize];
-            }
-
-            Array.Resize(ref outputBuffer, outputSize);
-            return outputBuffer;
+            StreamDecodingScheme(inputBuffer, output, inputBuffer.Length);
+            output.Flush();
         }
 
         public static void CompressFile(string input, string output)
@@ -65,6 +50,11 @@
             return EncodingScheme(input, output, size);
         }
 
+        public static int CompressBytes(byte[] input, int size, BinaryWriter output)
+        {
+            return StreamEncodingScheme(input, output, size);
+        }
+
         public static void DeompressFile(string input, string output)
         {
             byte[] inputBuffer = File.ReadAllBytes(input);
@@ -82,9 +72,16 @@
             fs.Write(outputBuffer, 0, outputSize);
         }
 
+        
+
         public static int DecompressBytes(byte[] input, int size, byte[] output)
         {
             return DecodingScheme(input, output, size);
+        }
+
+        public static int DecompressBytes(byte[] input, int size, BinaryWriter output)
+        {
+            return StreamDecodingScheme(input, output, size);
         }
 
         public static bool FileEquals(string file1, string file2)

@@ -31,6 +31,22 @@
             return outputLength;
         }
 
+        // TODO: Must handle possible write exception when calling this with an array-backed output
+        public static int Compress(byte[] input, BinaryWriter output, int inputLength)
+        {
+
+            var huffman = new Huffman();
+            var tree = huffman.BuildHuffmanTree(input, inputLength);
+            var mapping = huffman.TreeToMapping(tree);
+            // Copy bytes to output
+            int outputLength = huffman.TreeEncoding.Length;
+            output.Write(huffman.TreeEncoding);
+
+            outputLength += huffman.EncodeBytes(mapping, input, inputLength, output);
+
+            return outputLength;
+        }
+
         private readonly int[] frequencyTable = new int[256];
 
         private HuffmanNode BuildHuffmanTree(byte[] input, int inputLength)
@@ -177,6 +193,52 @@
             return output;
         }
 
+        private int EncodeBytes(ByteMapping[] mapping, byte[] input, int inputLength, BinaryWriter output)
+        {
+            output.Write(0); // Placeholder for number of bits in last byte
+            int codeSize = 1;
+            // Assumption that maximum codeword length <= 58
+            ulong Buffer = 0;
+            int BufferLength = 0;
+
+            for (int i = 0; i < inputLength; i++)
+            {
+                var codeWord = mapping[input[i]];
+                Buffer |= codeWord.MappedValue << BufferLength;
+                BufferLength += codeWord.MappedLength;
+
+                if (BufferLength > 64)
+                    throw new ArgumentException("Encoding chose a codeword with length exceeding buffer capacity");
+                while (BufferLength >= 8)
+                {
+                    // Buffer appends onto MSB, so oldest bits are at LSB, already in correct order
+                    byte byteToWrite = (byte)Buffer;
+                    output.Write(byteToWrite);
+                    codeSize++;
+                    Buffer >>= 8;
+                    BufferLength -= 8;
+                }
+            }
+
+            // at end, add possible remaining byte
+            if (BufferLength != 0)
+            {
+                output.Write((byte)Buffer); // at most 1 byte
+
+                // At the start of data (after fixed length tree encoding), specify how many bits of last byte to interpret
+                output.Seek(TreeEncoding.Length, SeekOrigin.Begin);
+                output.Write((byte)BufferLength);
+            }
+            else
+            {
+                output.Seek(TreeEncoding.Length, SeekOrigin.Begin);
+                output.Write(8); // fits exact, so whole last byte is data
+            }
+            output.Seek(0, SeekOrigin.End);
+
+            return codeSize;
+        }
+
         /* --------------------------------- Decoding ---------------------------------------- */
         // Only used for decoding initial tree structure
         private bool ReadBit(byte[] input, ref int index)
@@ -218,6 +280,13 @@
             return new Huffman().Decode(input, output, size);
         }
 
+        // TODO: Must handle possible write exception when calling this with an array-backed output
+        public static int Decompress(byte[] input, BinaryWriter output, int size)
+        {
+
+            return new Huffman().Decode(input, output, size);
+        }
+
         private int Decode(byte[] input, byte[] output, int inputLength)
         {
             if (inputLength <= TreeEncoding.Length)
@@ -244,6 +313,35 @@
                 output[outputIndex++] = b;
             }
             return outputIndex;
+        }
+
+        private int Decode(byte[] input, BinaryWriter output, int inputLength)
+        {
+
+            if (inputLength <= TreeEncoding.Length)
+                throw new ArgumentOutOfRangeException("Input length too short to hold more than just compression dictionary");
+            // Read tree encoding
+            HuffmanNode root = new(0, null, null, null);
+            Array.Copy(input, TreeEncoding, TreeEncoding.Length);
+            BytesToTree(root);
+
+            // Read number of bits of last byte
+            Input = input;
+            InputIndex = TreeEncoding.Length;
+            byte bitsInLastByte = Input[InputIndex++];
+
+            // Reset buffer
+            Buffer = 0;
+            BufferLength = 0;
+            int outputLength = 0;
+            // Extra test ensures that the correct number of bits are read from the last byte
+            while (InputIndex < inputLength || 8 - BufferLength < bitsInLastByte)
+            {
+                byte b = ReadSymbol(root);
+                output.Write(b);
+                outputLength++;
+            }
+            return outputLength;
         }
 
         private byte ReadSymbol(HuffmanNode node)

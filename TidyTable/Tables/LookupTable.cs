@@ -142,10 +142,15 @@ namespace TidyTable.Tables
                 // Assumption of layout [ White: short * maxIndex, Black: short * maxIndex ]
                 if (player == Player.Black) index += maxIndex;
                 index *= ProbeTableEntry.CompressedSize;
-                // Decompress whole file here - TODO: Allow processing in blocks/stream
-                // Initial size estimate is 2 players * entry size * number of entries
-                var bytes = Compression.Compress.Decompress(filename, 2u * ProbeTableEntry.CompressedSize * maxIndex);
-                return (ushort)((bytes[index] << 8) + bytes[index + 1]);
+                
+                var stream = new MemoryStream();
+                Compression.Compress.Decompress(filename, new BinaryWriter(stream));
+
+                stream.Seek(index, SeekOrigin.Begin);
+                var reader = new BinaryReader(stream);
+                var result = reader.ReadUInt16();
+                reader.Close();
+                return result;
             }
 
             MoveSearcher GetMove = (in Board board) =>
