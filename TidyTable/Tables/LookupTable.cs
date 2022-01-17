@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using TidyTable.Compression;
 using TidyTable.Endgames;
 using TidyTable.TableFormats;
 using static Chessington.GameEngine.AI.Endgame.NormalForm;
@@ -127,7 +128,7 @@ namespace TidyTable.Tables
             Compression.Compress.CompressToFile(uncompressed, (int)byteIndex, filename);
         }
 
-        public static LookupTable FromOnDemandCompressedFile(
+        public static LookupTable FromOnDemandHuffmanFile(
             string filename,
             string classification,
             uint maxIndex,
@@ -142,14 +143,13 @@ namespace TidyTable.Tables
                 // Assumption of layout [ White: short * maxIndex, Black: short * maxIndex ]
                 if (player == Player.Black) index += maxIndex;
                 index *= ProbeTableEntry.CompressedSize;
-                
-                var stream = new MemoryStream();
-                Compression.Compress.Decompress(filename, new BinaryWriter(stream));
 
-                stream.Seek(index, SeekOrigin.Begin);
-                var reader = new BinaryReader(stream);
-                var result = reader.ReadUInt16();
-                reader.Close();
+                var fs = new FileStream(filename, FileMode.Open);
+                var reader = new HuffmanReader(fs); // Explicitly Huffman Code
+
+                reader.Seek(index);
+                var result = reader.ReadUShort();
+                fs.Close();
                 return result;
             }
 

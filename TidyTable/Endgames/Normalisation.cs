@@ -40,6 +40,7 @@ namespace TidyTable.Endgames
             }
             else if (((king >> 3) & 7) == (king & 7)) // Checks for white king on diagonal
             {
+                // TODO: Could keep repeating till any piece not on diagonal, not just kings
                 var blackKing = board.FindKing(Player.Black);
                 if (((blackKing >> 3) & 7) > (blackKing & 7)) // and black king above it
                 {

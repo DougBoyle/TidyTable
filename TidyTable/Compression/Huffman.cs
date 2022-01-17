@@ -1,4 +1,6 @@
-﻿namespace TidyTable.Compression
+﻿using static TidyTable.Compression.Huffman;
+
+namespace TidyTable.Compression
 {
     public class Huffman
     {
@@ -286,7 +288,6 @@
 
             return new Huffman().Decode(input, output, size);
         }
-
         private int Decode(byte[] input, byte[] output, int inputLength)
         {
             if (inputLength <= TreeEncoding.Length)
@@ -352,7 +353,7 @@
 
 
         /* --------------------------------- Data Structures ---------------------------------------- */
-        private class ByteMapping
+        public class ByteMapping
         {
             // Byte value left implicit as array index
             // public readonly byte Value;
@@ -360,7 +361,7 @@
             public byte MappedLength;
         }
 
-        private class HuffmanNode
+        public class HuffmanNode
         {
             public readonly int Frequency;
             public byte? Value;
@@ -373,6 +374,100 @@
                 Left = left;
                 Right = right;
             }
+        }
+    }
+
+    public class HuffmanReader
+    {
+        private Stream Stream;
+
+        private readonly byte[] IndexMapping = new byte[256];
+        private readonly HuffmanNode Root;
+        // For writing bits/bytes to output. Insert new bits at most significant end, so 'first' bit is LSB of output
+        private byte Buffer = 0;
+        private int BufferLength = 0; // index from LSB where next bit will be written
+        private int LeafCount = 0;
+
+        private int bitsInLastByte;
+
+        public HuffmanReader(Stream stream)
+        {
+            Stream = stream;
+            // TODO: Tidy up order of fields
+            stream.Seek(64, SeekOrigin.Begin);
+            stream.Read(IndexMapping, 0, 256);
+            stream.Seek(0, SeekOrigin.Begin);
+
+            // Read tree encoding
+            Root = new(0, null, null, null);
+            BytesToTree(Root);
+            stream.Seek(64 + 256, SeekOrigin.Begin); // seek to end of header containing encoding
+
+            // Read number of bits of last byte
+            // Could be used to detect when end of stream is, but currently just rely on correct use by caller
+            // (since this is only used to lookup a specific index, not process the whole table)
+            bitsInLastByte = stream.ReadByte();
+
+            // Reset buffer
+            Buffer = 0;
+            BufferLength = 0;
+        }
+
+        public byte ReadByte()
+        {
+            return ReadSymbol(Root);
+        }
+
+        public ushort ReadUShort()
+        {
+            ushort result = ReadSymbol(Root);
+            result <<= 8;
+            result |= ReadSymbol(Root);
+            return result;
+        }
+
+        public void Seek(uint offset)
+        {
+            while (offset-- > 0)
+            {
+                ReadByte();
+            }
+        }
+
+        private void BytesToTree(HuffmanNode currentNode)
+        {
+            bool isLeaf = ReadBit();
+            if (isLeaf)
+            {
+                currentNode.Value = IndexMapping[LeafCount++];
+            }
+            else
+            {
+                HuffmanNode left = new(0, null, null, null);
+                BytesToTree(left);
+                HuffmanNode right = new(0, null, null, null);
+                BytesToTree(right);
+                currentNode.Left = left;
+                currentNode.Right = right;
+            }
+        }
+        private byte ReadSymbol(HuffmanNode node)
+        {
+            while (node.Value == null) node = ReadBit() ? node.Right! : node.Left!;
+            return (byte)node.Value;
+        }
+
+        private bool ReadBit()
+        {
+            if (BufferLength == 0)
+            {
+                BufferLength = 8;
+                Buffer = (byte)Stream.ReadByte();
+            }
+            BufferLength--;
+            bool isLeaf = (Buffer & 1) == 1;
+            Buffer >>= 1;
+            return isLeaf;
         }
     }
 }
