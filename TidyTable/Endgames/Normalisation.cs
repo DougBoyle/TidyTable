@@ -17,7 +17,7 @@ namespace TidyTable.Endgames
             byte king = board.FindKing(Player.White);
 
             // flip into lower half of board
-            if (king > 32)
+            if (king >= 32)
             {
                 ReverseAlongColumns(board);
                 king = (byte)(king ^ 56);
@@ -94,11 +94,21 @@ namespace TidyTable.Endgames
             }
         }
 
+        // Board only expects AddPiece when piece is not NoPiece and nothing there already
         private static void Swap(Board board, byte square1, byte square2)
         {
-            byte tmp = board.GetPieceIndex(square1);
-            board.AddPiece(square1, board.GetPieceIndex(square2));
-            board.AddPiece(square2, tmp);
+            byte piece1 = board.GetPieceIndex(square1);
+            byte piece2 = board.GetPieceIndex(square2);
+            if (piece2 != (byte)PieceKind.NoPiece) board.RemovePiece(piece2, square2, 1UL << square2);
+            if (piece1 != (byte)PieceKind.NoPiece)
+            {
+                board.RemovePiece(piece1, square1, 1UL << square1);
+                board.AddPiece(square2, piece1);
+            }
+            if (piece2 != (byte)PieceKind.NoPiece)
+            {
+                board.AddPiece(square1, piece2);
+            }
         }
 
         // Swaps both the colour of pieces, and the row to account for pawn direction

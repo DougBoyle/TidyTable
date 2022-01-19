@@ -13,6 +13,8 @@ namespace TidyTable.Tables
     // Used for actually solving an endgame
     public class SolvingTable
     {
+        public string Classification;
+
         // includes kings
         public readonly List<ColourlessPiece> WhitePieces;
         public readonly List<ColourlessPiece> BlackPieces;
@@ -21,6 +23,7 @@ namespace TidyTable.Tables
         // Each normalised position lists an outcome/move for both black/white
         public readonly TableEntry?[] WhiteTable;
         public readonly TableEntry?[] BlackTable;
+        public readonly uint MaxIndex;
 
         public readonly IndexGetter GetIndex;
         public readonly BoardNormaliser NormaliseBoard;
@@ -34,17 +37,19 @@ namespace TidyTable.Tables
             List<ColourlessPiece> whitePieces,
             List<ColourlessPiece> blackPieces,
             List<SubTable> subTables,
-            int maxIndex, // maximum given normalisation
+            uint maxIndex, // maximum given normalisation
             IndexGetter getIndex,
             BoardNormaliser normaliseBoard
         )
         {
+            Classification = Classifier.ClassifyPieceLists(whitePieces, blackPieces);
             WhitePieces = whitePieces;
             BlackPieces = blackPieces;
             SubTables = subTables.Concat(subTables.Select(table => table.SwappedColour()))
                 .ToDictionary(table => table.Classification, table => table);
             WhiteTable = new TableEntry[maxIndex];
             BlackTable = new TableEntry[maxIndex];
+            MaxIndex = maxIndex;
             GetIndex = getIndex;
             NormaliseBoard = normaliseBoard;
         }

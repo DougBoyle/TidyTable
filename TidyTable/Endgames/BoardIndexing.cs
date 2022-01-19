@@ -43,9 +43,9 @@ namespace TidyTable.Endgames
      */
     // TODO: Carefully test this!
 
-    public class NoPawnBoardIndexing
+    public class NoPawnBoardIndexing: BoardIndexer
     {
-        public readonly int MaxIndex;
+        public uint MaxIndex { get; }
 
         private readonly List<PieceKind> nonKingPieces;
         private readonly int wkOffDiagonalValue;
@@ -72,10 +72,11 @@ namespace TidyTable.Endgames
             wkOffDiagonalValue = bkValue * 61; // wk not in a corner, and bk cannot be adjacent, so only 61 squares
             wkOnDiagonalValue = bkValue * 34; // normalisation puts bk on a triangle of 36 squares, -2 adjacent/on white king
 
-            MaxIndex = 6 * wkOffDiagonalValue + 4 * wkOnDiagonalValue;
+            MaxIndex = (uint)(6 * wkOffDiagonalValue + 4 * wkOnDiagonalValue);
         }
 
-        public int Index(Board board)
+        // never uses the full 32 bits, so can safely treat as int then return uint
+        public uint Index(Board board)
         {
             int index = 0;
             int whiteKingIndex = board.FindKing(Player.White);
@@ -113,15 +114,15 @@ namespace TidyTable.Endgames
 
                 occupancy |= bit;
             }
-            return index;
+            return (uint)index;
         }
     }
 
     // Unlike for no pawns above, due to fixed pawn direction, cannot flip any direction except horizontally,
     // so only 2x symmetry by enforcing the white king be on the left half of the board
-    public class WhitePawnBoardIndexing
+    public class WhitePawnBoardIndexing: BoardIndexer
     {
-        public readonly int MaxIndex;
+        public uint MaxIndex { get; }
 
         private readonly List<PieceKind> nonKingPieces;
         private readonly int wkValue;
@@ -150,10 +151,10 @@ namespace TidyTable.Endgames
             // eliminate 2 squares as bk can never be on same square or 1 of the square just after/before wk
             wkValue = bkValue * 62;
 
-            MaxIndex = wkValue * 32;
+            MaxIndex = (uint)(wkValue * 32);
         }
 
-        public int Index(Board board)
+        public uint Index(Board board)
         {
             int whiteKingIndex = board.FindKing(Player.White);
             // can discard bit 3 = which half of row, and shift bits for which row down one
@@ -188,7 +189,7 @@ namespace TidyTable.Endgames
                 }
                 occupancy |= bit;
             }
-            return index;
+            return (uint)index;
         }
     }
 
@@ -232,5 +233,11 @@ namespace TidyTable.Endgames
                                                                     {54, 33}, {55, 34}, // rank 7
                                                                               {63, 35}, // rank 8
         };
+    }
+
+    public interface BoardIndexer
+    {
+        uint MaxIndex { get; }
+        uint Index(Board board);
     }
 }

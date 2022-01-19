@@ -23,6 +23,21 @@ namespace TidyTable.Tables
             GetOutcome = getOutcome;
         }
 
+        // Uses the original SolvingTable, rather than mapping its tables to tables of SubTableEntries and only keeping those
+        public SubTable(SolvingTable table)
+        {
+            Classification = table.Classification;
+            GetOutcome = (in Board board) =>
+            {
+                var boardCopy = new Board(board);
+                table.NormaliseBoard(boardCopy);
+                var index = table.GetIndex(boardCopy);
+                var tableEntry = (board.CurrentPlayer == Player.White ? table.WhiteTable : table.BlackTable)[index];
+                if (tableEntry == null) return null;
+                return new SubTableEntry(tableEntry);
+            };
+        }
+
         // Given one for matching KP-K, returns one for K-KP i.e. positions that were winning for White now win for Black
         // FlipColour swaps Black/White pieces (changes index) and current player, so we want the Outcome of that player, not opposite
         public SubTable SwappedColour()
@@ -63,7 +78,7 @@ namespace TidyTable.Tables
         public SubTable(
             string filename,
             string classification,
-            int maxIndex,
+            uint maxIndex,
             IndexGetter getIndex,
             BoardNormaliser normaliseBoard
         )
