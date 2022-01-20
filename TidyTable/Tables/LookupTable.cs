@@ -1,4 +1,5 @@
 ﻿using Chessington.GameEngine;
+using Chessington.GameEngine.AI;
 using Chessington.GameEngine.Pieces;
 using System;
 using System.Collections.Generic;
@@ -23,6 +24,30 @@ namespace TidyTable.Tables
         {
             Classification = classification;
             GetMove = getMove;
+        }
+
+        public LookupTable(SolvingTable table, BoardNormaliserWithMapping normaliser)
+        {
+            Classification = table.Classification;
+            GetMove = (in Board board) =>
+            {
+                var copy = new Board(board);
+                var transform = normaliser(copy);
+                var index = table.GetIndex(copy);
+                // TODO: Extract this to a function
+                var entry = (board.CurrentPlayer == Player.White ? table.WhiteTable : table.BlackTable)[index];
+                if (entry == null) return null;
+                var move = entry.Move;
+                if (move == null) return new ProbeTableEntry(entry.Outcome, null);
+                var resultMove = new Move(
+                    transform(move.FromIdx),
+                    transform(move.ToIdx),
+                    move.MovingPiece,
+                    move.CapturedPiece,
+                    move.PromotionPiece
+                );
+                return new ProbeTableEntry(entry.Outcome, resultMove);
+            };
         }
 
         // Given one for matching KP-K, returns one for K-KP i.e. positions that were winning for White now win for Black
@@ -125,7 +150,7 @@ namespace TidyTable.Tables
                 }
             }
 
-            Compression.Compress.CompressToFile(uncompressed, (int)byteIndex, filename);
+            Compress.CompressToFile(uncompressed, (int)byteIndex, filename);
         }
 
         public static LookupTable FromOnDemandHuffmanFile(

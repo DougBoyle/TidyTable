@@ -139,6 +139,7 @@ namespace TidyTable.Tables
             uint maxIndex,
             IndexGetter getIndex,
             BoardNormaliser normaliseBoard,
+            WLDTable wldTable,
             int maxBits // number of bits needed to store maximum DTM present in the table
         )
         {
@@ -150,6 +151,7 @@ namespace TidyTable.Tables
             this.maxBits = maxBits;
             sbyte bitMask = (sbyte)((1 << maxBits) - 1); // for extracting data from bottom of buffer
             Data = new sbyte[maxIndex];
+            WLDTable = wldTable;
 
             // As usual, write starting from LSB
             int dataIndex = 0;

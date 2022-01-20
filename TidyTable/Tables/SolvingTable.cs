@@ -32,6 +32,7 @@ namespace TidyTable.Tables
 
         private bool TablesChanging = true;
         private int changes = 0;
+        private int iterations = 0;
 
         public SolvingTable(
             List<ColourlessPiece> whitePieces,
@@ -58,6 +59,7 @@ namespace TidyTable.Tables
         {
             // initialise a table of all positions
             PopulateTable();
+            iterations = 0;
 
             // until tables stop changing, iterate over all entries to solve by backtracking from checkmates/draws
             while (TablesChanging)
@@ -66,7 +68,8 @@ namespace TidyTable.Tables
                 changes = 0;
                 UpdateBlackTable();
                 UpdateWhiteTable();
-                Console.WriteLine($"Iteration complete, {changes} changes");
+                Console.WriteLine($"Iteration {iterations} complete, {changes} changes");
+                iterations++;
             }
             FillInDraws(WhiteTable, BlackTable);
             FillInDraws(BlackTable, WhiteTable);
@@ -158,32 +161,44 @@ namespace TidyTable.Tables
 
         private void UpdateBlackTable()
         {
-            for (int tableIndex = 0; tableIndex < BlackTable.Length; tableIndex++)
+            // TODO: Parallel for, ensuring shared writes are atomic (e.g. num changes/TablesChanging)
+            Parallel.For(0, BlackTable.Length, tableIndex =>
+            //     for (int tableIndex = 0; tableIndex < BlackTable.Length; tableIndex++)
             {
                 TableEntry? entry = BlackTable[tableIndex];
-                if (entry == null || entry.Outcome != Outcome.Unknown) continue;
+                // When sub-tables present, max DTM in table increases unevenly due to different DTM at positions in sub tables.
+                // Hence can't assume a win/loss is the minimum/maximum value until DTM < number of iterations already performed.
+                // (Can't check entry.DTM < iterations on it's own, as this is initialsed as -1)
+                if (entry == null || (entry.Outcome != Outcome.Unknown && entry.DTM < iterations)) return; // continue;
 
                 UpdateEntry(tableIndex, entry, BlackTable, WhiteTable);
-            }
+            });
         }
 
         private void UpdateWhiteTable()
         {
-            for (int tableIndex = 0; tableIndex < WhiteTable.Length; tableIndex++)
+            // TODO: Parallel for, ensuring shared writes are atomic (e.g. num changes/TablesChanging)
+            Parallel.For(0, WhiteTable.Length, tableIndex =>
+            //   for (int tableIndex = 0; tableIndex < WhiteTable.Length; tableIndex++)
             {
                 TableEntry? entry = WhiteTable[tableIndex];
-                if (entry == null || entry.Outcome != Outcome.Unknown) continue;
+                // When sub-tables present, max DTM in table increases unevenly due to different DTM at positions in sub tables.
+                // Hence can't assume a win/loss is the minimum/maximum value until DTM < number of iterations already performed.
+                // (Can't check entry.DTM < iterations on it's own, as this is initialsed as -1)
+                if (entry == null || (entry.Outcome != Outcome.Unknown && entry.DTM < iterations)) return; // continue;
 
                 UpdateEntry(tableIndex, entry, WhiteTable, BlackTable);
-            }
+            });
         }
 
         private void FillInDraws(TableEntry?[] myTable, TableEntry?[] theirTable)
         {
-            for (int index = 0; index < myTable.Length; index++)
+            // TODO: Parallel for, ensuring shared writes are atomic
+            Parallel.For(0, myTable.Length, index =>
+            //   for (int index = 0; index < myTable.Length; index++)
             {
                 TableEntry? entry = myTable[index];
-                if (entry == null || entry.Outcome != Outcome.Unknown) continue;
+                if (entry == null || entry.Outcome != Outcome.Unknown) return; // continue;
 
                 var board = entry.Board;
 
@@ -195,7 +210,7 @@ namespace TidyTable.Tables
 
                 entry.Update(choice.Item1, choice.Item2);
                 entry.Outcome = Outcome.Draw;
-            }
+            });
         }
 
         private void UpdateEntry(int tableIndex, TableEntry entry, TableEntry?[] myTable, TableEntry?[] theirTable)
@@ -206,7 +221,8 @@ namespace TidyTable.Tables
             if (allAvailableMoves.Count == 0) // either checkmate or stalemate
             {
                 TablesChanging = true;
-                changes++;
+                Interlocked.Increment(ref changes);
+            //    changes++;
                 entry.DTM = 0;
                 entry.DTZ = 0;
                 entry.Outcome = board.InCheck(Player.Black) ? Outcome.Lose : Outcome.Draw;
@@ -219,11 +235,14 @@ namespace TidyTable.Tables
                 // (based on each entry for opponent in the position reached, but same board and flipped outcome)
                 var allEntries = allAvailableMoves.Select(move => (move, GetEntryForMove(move, entry, board, theirTable)));
                 (Move, SubTableEntry)? choice = ChooseEntry(allEntries);
-                if (choice != null)
+                // Results sometimes need overwriting with a lower DTM, but when an entry is already known
+                // and the entry found doesn't lower the DTM, don't wrongly signal TablesChanging
+                if (choice != null && (entry.Outcome == Outcome.Unknown || choice?.Item2.DTM < entry.DTM))
                 {
                     (Move, SubTableEntry) chosen = ((Move, SubTableEntry))choice;
                     TablesChanging = true;
-                    changes++;
+                    // changes++;
+                    Interlocked.Increment(ref changes);
                     entry.Update(chosen.Item1, chosen.Item2);
                 }
             }

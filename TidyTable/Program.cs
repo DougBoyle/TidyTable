@@ -1,5 +1,10 @@
 ﻿// See https://aka.ms/new-console-template for more information
+using Chessington.GameEngine;
+using Chessington.GameEngine.Pieces;
 using TidyTable.Compression;
+using TidyTable.Endgames;
+using TidyTable.TableFormats;
+using TidyTable.Tables;
 
 /*
 // Testing compression
@@ -11,7 +16,13 @@ if (args.Length >= 2)
 }
 */
 
-// TODO: KQKR incorrect - program says 37 moves, online TB says 35 with example: 8/8/8/8/2r5/8/2k5/K6Q w - - 0 1
+var watch = new System.Diagnostics.Stopwatch();
+watch.Start();
+
+// TODO: Let this load from file instead again
 TidyTable.Tablebase.FourPieces.KQKR();
+
+watch.Stop();
+Console.WriteLine($"Execution Time: {watch.ElapsedMilliseconds} ms");
 Console.WriteLine("Press enter to exit...");
 Console.ReadLine();

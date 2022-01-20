@@ -14,6 +14,7 @@ namespace TidyTable.Tablebase
 {
     public class FourPieces
     {
+        // TODO: Mark as symmetric and solve one-sided
         public static SubTable KQKQ()
         {
             var filename = TablePrefix + "KQKQ.dtm";
@@ -48,6 +49,7 @@ namespace TidyTable.Tablebase
             );
         }
 
+        // TODO: Mark as symmetric and solve one-sided
         public static SubTable KRKR()
         {
             var filename = TablePrefix + "KRKR.dtm";

@@ -41,6 +41,15 @@ Descriptions of other techniques:
   in the DTZ (will get correct value from searching sub-table). Re-Pair allows exploiting this
   to choose values making compression as efficient as possible.
 
+Notes on the algorithm for solving tables:  
+Except for the 3-piece tables, we cannot assume that once the outcome of a position
+is known then it no longer needs updating. Whereas for 3 pieces the maximum DTM increments
+from 0 on each iteration, the DTM values of a 4+ piece table are varied after the first iteration
+due to poitions simplifying to sub-table positions with a range of DTM values. For example,
+3-ply to a mate in 1 sub-position will be found later than 1-ply to a mate in 5 sub-position.
+This affects both wins and the highest DTM of a following position for determining losses,
+so both need re-searching until their DTM is less than the number of iterations already performed.
+
 **Size of tables**  
 3 Pieces:
   - DTM tables are 616KB total  
