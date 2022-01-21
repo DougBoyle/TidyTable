@@ -7,22 +7,22 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using TidyTable.TableFormats;
+using static Chessington.GameEngine.AI.Endgame.NormalForm;
 
 namespace TidyTable.Tables
 {
-    // Used for actually solving an endgame
-    public class SolvingTable
+    // When white and black pieces are equal (e.g. KQKQ), only necessary to calculate for one colour,
+    // and swap the colour of the board to get results for the other side
+    public class SolvingTableSymmetric
     {
         public string Classification;
 
         // includes kings
-        public readonly List<ColourlessPiece> WhitePieces;
-        public readonly List<ColourlessPiece> BlackPieces;
+        public readonly List<ColourlessPiece> Pieces;
         readonly Dictionary<string, SubTable> SubTables;
 
-        // Each normalised position lists an outcome/move for both black/white
-        public readonly TableEntry?[] WhiteTable;
-        public readonly TableEntry?[] BlackTable;
+        // Each normalised position lists an outcome/move for just one colour, since table symmetric
+        public readonly TableEntry?[] Table;
         public readonly uint MaxIndex;
 
         public readonly IndexGetter GetIndex;
@@ -34,22 +34,19 @@ namespace TidyTable.Tables
         private int changes = 0;
         private int iterations = 0;
 
-        public SolvingTable(
-            List<ColourlessPiece> whitePieces,
-            List<ColourlessPiece> blackPieces,
+        public SolvingTableSymmetric(
+            List<ColourlessPiece> pieces,
             List<SubTable> subTables,
-            uint maxIndex, // maximum given normalisation
+            uint maxIndex,
             IndexGetter getIndex,
             BoardNormaliser normaliseBoard
         )
         {
-            Classification = Classifier.ClassifyPieceLists(whitePieces, blackPieces);
-            WhitePieces = whitePieces;
-            BlackPieces = blackPieces;
+            Classification = Classifier.ClassifyPieceLists(pieces, pieces);
+            Pieces = pieces;
             SubTables = subTables.Concat(subTables.Select(table => table.SwappedColour()))
                 .ToDictionary(table => table.Classification, table => table);
-            WhiteTable = new TableEntry[maxIndex];
-            BlackTable = new TableEntry[maxIndex];
+            Table = new TableEntry[maxIndex];
             MaxIndex = maxIndex;
             GetIndex = getIndex;
             NormaliseBoard = normaliseBoard;
@@ -66,13 +63,11 @@ namespace TidyTable.Tables
             {
                 TablesChanging = false;
                 changes = 0;
-                UpdateBlackTable();
-                UpdateWhiteTable();
+                UpdateTable();
                 Console.WriteLine($"Iteration {iterations} complete, {changes} changes");
                 iterations++;
             }
-            FillInDraws(WhiteTable, BlackTable);
-            FillInDraws(BlackTable, WhiteTable);
+            FillInDraws();
             IsInitialised = true;
 
             LogQuickTableVerification();
@@ -80,10 +75,8 @@ namespace TidyTable.Tables
 
         private void LogQuickTableVerification()
         {
-            var blackCanDraw = BlackTable.Any(entry => entry != null && entry.Outcome == Outcome.Draw);
-            var longestMate = WhiteTable.MaxBy(entry => entry?.DTM ?? 0)?.DTM;
-            Console.WriteLine($"Draw exists for black: {blackCanDraw}");
-            Console.WriteLine($"Longest mate for white is {longestMate} ply ({(longestMate + 1) / 2} moves)");
+            var longestMate = Table.MaxBy(entry => entry?.DTM ?? 0)?.DTM;
+            Console.WriteLine($"Longest mate is {longestMate} ply ({(longestMate + 1) / 2} moves)");
         }
 
         // Could also pass this in to use normalisation knowledge,
@@ -94,10 +87,11 @@ namespace TidyTable.Tables
         private void PopulateTable()
         {
             // TODO: When 1+ pawn on each side, will also need to handle en-passant
+            // TODO: Commonise with non-symmetric case
 
-            // handle kings explicitly, since always present
-            var otherPieces = WhitePieces.Where(piece => piece != ColourlessPiece.King).Select(piece => (PieceKind)piece)
-                .Concat(BlackPieces.Where(piece => piece != ColourlessPiece.King).Select(piece => (PieceKind)(piece + 6))).ToList();
+            // handle kings explicitly, since always present. All other pieces => 1 piece of each colour
+            var otherPieces = Pieces.Where(piece => piece != ColourlessPiece.King)
+                .SelectMany(piece => new List<PieceKind>() { (PieceKind)piece, (PieceKind)(piece + 6) }).ToList();
 
             for (int wk = 0; wk < 32; wk++)
             {
@@ -115,6 +109,7 @@ namespace TidyTable.Tables
             }
         }
 
+        // TODO: Can commonise with non-symmetric case
         private void AddPieces(Board board, List<PieceKind> pieces)
         {
             // Add to table if not already present - no need to normalise, taking any example is sufficient
@@ -126,15 +121,10 @@ namespace TidyTable.Tables
                 NormaliseBoard(boardCopy);
                 var index = GetIndex(boardCopy);
 
-                if (WhiteTable[index] == null && !boardCopy.InCheck(Player.Black))
+                if (Table[index] == null && !boardCopy.InCheck(Player.Black))
                 {
-                    WhiteTable[index] = new TableEntry(index, new Board(boardCopy));
-                }
-                if (BlackTable[index] == null && !boardCopy.InCheck(Player.White))
-                {
-                    var blackBoard = new Board(boardCopy);
-                    blackBoard.CurrentPlayer = Player.Black;
-                    BlackTable[index] = new TableEntry(index, blackBoard);
+                    // TODO: Don't need to duplicate boardCopy?
+                    Table[index] = new TableEntry(index, boardCopy);
                 }
             }
             else
@@ -159,45 +149,25 @@ namespace TidyTable.Tables
             }
         }
 
-        private void UpdateBlackTable()
+        private void UpdateTable()
         {
-            // TODO: Parallel for, ensuring shared writes are atomic (e.g. num changes/TablesChanging)
-            Parallel.For(0, BlackTable.Length, tableIndex =>
-            //     for (int tableIndex = 0; tableIndex < BlackTable.Length; tableIndex++)
+            Parallel.For(0, Table.Length, tableIndex =>
             {
-                TableEntry? entry = BlackTable[tableIndex];
+                TableEntry? entry = Table[tableIndex];
                 // When sub-tables present, max DTM in table increases unevenly due to different DTM at positions in sub tables.
                 // Hence can't assume a win/loss is the minimum/maximum value until DTM < number of iterations already performed.
                 // (Can't check entry.DTM < iterations on it's own, as this is initialsed as -1)
                 if (entry == null || (entry.Outcome != Outcome.Unknown && entry.DTM < iterations)) return; // continue;
 
-                UpdateEntry(tableIndex, entry, BlackTable, WhiteTable);
+                UpdateEntry(entry);
             });
         }
 
-        private void UpdateWhiteTable()
+        private void FillInDraws()
         {
-            // TODO: Parallel for, ensuring shared writes are atomic (e.g. num changes/TablesChanging)
-            Parallel.For(0, WhiteTable.Length, tableIndex =>
-            //   for (int tableIndex = 0; tableIndex < WhiteTable.Length; tableIndex++)
+            Parallel.For(0, Table.Length, index =>
             {
-                TableEntry? entry = WhiteTable[tableIndex];
-                // When sub-tables present, max DTM in table increases unevenly due to different DTM at positions in sub tables.
-                // Hence can't assume a win/loss is the minimum/maximum value until DTM < number of iterations already performed.
-                // (Can't check entry.DTM < iterations on it's own, as this is initialsed as -1)
-                if (entry == null || (entry.Outcome != Outcome.Unknown && entry.DTM < iterations)) return; // continue;
-
-                UpdateEntry(tableIndex, entry, WhiteTable, BlackTable);
-            });
-        }
-
-        private void FillInDraws(TableEntry?[] myTable, TableEntry?[] theirTable)
-        {
-            // TODO: Parallel for, ensuring shared writes are atomic
-            Parallel.For(0, myTable.Length, index =>
-            //   for (int index = 0; index < myTable.Length; index++)
-            {
-                TableEntry? entry = myTable[index];
+                TableEntry? entry = Table[index];
                 if (entry == null || entry.Outcome != Outcome.Unknown) return; // continue;
 
                 var board = entry.Board;
@@ -205,15 +175,15 @@ namespace TidyTable.Tables
                 var allAvailableMoves = board.GetAllAvailableMoves();
 
 
-                var allEntries = allAvailableMoves.Select(move => (move, GetEntryForMove(move, board, theirTable)));
-                var choice = ChooseRemainingDraws(allEntries);
+                var allEntries = allAvailableMoves.Select(move => (move, GetEntryForMove(move, board)));
+                var choice = SolvingTable.ChooseRemainingDraws(allEntries);
 
                 entry.Update(choice.Item1, choice.Item2);
                 entry.Outcome = Outcome.Draw;
             });
         }
 
-        private void UpdateEntry(int tableIndex, TableEntry entry, TableEntry?[] myTable, TableEntry?[] theirTable)
+        private void UpdateEntry(TableEntry entry)
         {
             var board = entry.Board;
             var allAvailableMoves = board.GetAllAvailableMoves();
@@ -222,7 +192,6 @@ namespace TidyTable.Tables
             {
                 TablesChanging = true;
                 Interlocked.Increment(ref changes);
-            //    changes++;
                 entry.DTM = 0;
                 entry.DTZ = 0;
                 entry.Outcome = board.InCheck(Player.Black) ? Outcome.Lose : Outcome.Draw;
@@ -233,22 +202,21 @@ namespace TidyTable.Tables
 
                 // entries represent possible replacements for current entry, depending on the 'move' played
                 // (based on each entry for opponent in the position reached, but same board and flipped outcome)
-                var allEntries = allAvailableMoves.Select(move => (move, GetEntryForMove(move, board, theirTable)));
-                (Move, SubTableEntry)? choice = ChooseEntry(allEntries);
+                var allEntries = allAvailableMoves.Select(move => (move, GetEntryForMove(move, board)));
+                (Move, SubTableEntry)? choice = SolvingTable.ChooseEntry(allEntries);
                 // Results sometimes need overwriting with a lower DTM, but when an entry is already known
                 // and the entry found doesn't lower the DTM, don't wrongly signal TablesChanging
                 if (choice != null && (entry.Outcome == Outcome.Unknown || choice?.Item2.DTM < entry.DTM))
                 {
                     (Move, SubTableEntry) chosen = ((Move, SubTableEntry))choice;
                     TablesChanging = true;
-                    // changes++;
                     Interlocked.Increment(ref changes);
                     entry.Update(chosen.Item1, chosen.Item2);
                 }
             }
         }
 
-        private SubTableEntry GetEntryForMove(Move move, in Board board, TableEntry?[] otherTable)
+        private SubTableEntry GetEntryForMove(Move move, in Board board)
         {
             // TODO: Board copied in each case, so GetEntry/GetIndex are allowed to manipulate the board they receive
             var boardCopy = new Board(board);
@@ -275,41 +243,13 @@ namespace TidyTable.Tables
             else
             {
                 // table was initialised with all valid positions, so should not be null
-                NormaliseBoard(boardCopy); // TODO: Should GetIndex assume board is normalised or not?
-                var opponentEntry = otherTable[GetIndex(boardCopy)];
+                // first flip the colour, to get opponent's outcome from their perspective
+                FlipColour(boardCopy);
+                NormaliseBoard(boardCopy);
+                var opponentEntry = Table[GetIndex(boardCopy)];
                 if (opponentEntry == null) throw new Exception("Reached position that should not be possible");
                 return opponentEntry.SolvingTableEntry().BeforeMove(move);
             }
-        }
-
-        public static (Move, SubTableEntry)? ChooseEntry(IEnumerable<(Move, SubTableEntry)> entries)
-        {
-            // 1. Any win (without 50 move counter hit) => win, pick smallest DTM
-            if (entries.Any(entry => entry.Item2.Outcome == Outcome.Win))
-            {
-                return entries
-                    .Where(entry => entry.Item2.Outcome == Outcome.Win)
-                    .MinBy(entry => entry.Item2.DTM)!;
-            }
-            // 2. Any unknown (and no win) => unknown, must wait, no change
-            else if (entries.Any(entry => entry.Item2.Outcome == Outcome.Unknown)) return null;
-            // 3. Any draw (and no win) => drawing, pick draw with smallest DTM
-            else if (entries.Any(entry => entry.Item2.Outcome == Outcome.Draw))
-            {
-                return entries
-                    .Where(entry => entry.Item2.Outcome == Outcome.Draw)
-                    .MinBy(entry => entry.Item2.DTM)!;
-            }
-            // 4. All losing => losing, pick largest DTM.
-            // *** technically, should try to set up stalemate traps, but can't detect with this method
-            else return entries.MaxBy(entry => entry.Item2.DTM);
-        }
-
-        public static (Move, SubTableEntry) ChooseRemainingDraws(IEnumerable<(Move, SubTableEntry)> entries)
-        {
-            return entries
-                .Where(entry => entry.Item2.Outcome == Outcome.Draw || entry.Item2.Outcome == Outcome.Unknown)
-                .First();
         }
     }
 }
