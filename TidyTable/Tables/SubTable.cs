@@ -38,6 +38,21 @@ namespace TidyTable.Tables
             };
         }
 
+        public SubTable(SolvingTableSymmetric table)
+        {
+            Classification = table.Classification;
+            GetOutcome = (in Board board) =>
+            {
+                var boardCopy = new Board(board);
+                if (board.CurrentPlayer == Player.Black) FlipColour(boardCopy);
+                table.NormaliseBoard(boardCopy);
+                var index = table.GetIndex(boardCopy);
+                var tableEntry = table.Table[index];
+                if (tableEntry == null) return null;
+                return new SubTableEntry(tableEntry);
+            };
+        }
+
         // Given one for matching KP-K, returns one for K-KP i.e. positions that were winning for White now win for Black
         // FlipColour swaps Black/White pieces (changes index) and current player, so we want the Outcome of that player, not opposite
         public SubTable SwappedColour()
@@ -75,15 +90,50 @@ namespace TidyTable.Tables
             }
         }
 
+        public static void WriteToFile(SolvingTableSymmetric table, string filename)
+        {
+            using FileStream fs = File.OpenWrite(filename);
+            for (int i = 0; i < table.Table.Length; i++)
+            {
+                TableEntry? entry = table.Table[i];
+                ushort encoded = entry != null ? new SubTableEntry(entry).ToShort() : (ushort)0;
+                byte[] bytes = BitConverter.GetBytes(encoded);
+                if (BitConverter.IsLittleEndian) Array.Reverse(bytes);
+                fs.Write(bytes, 0, 2);
+            }     
+        }
+
         public SubTable(
             string filename,
             string classification,
             uint maxIndex,
             IndexGetter getIndex,
-            BoardNormaliser normaliseBoard
+            BoardNormaliser normaliseBoard,
+            bool symmetric = false
         )
         {
             Classification = classification;
+            GetOutcome = symmetric
+                ? FromSymmetricFile(
+                    filename,
+                    maxIndex,
+                    getIndex,
+                    normaliseBoard
+                ) : FromFile(
+                    filename,
+                    maxIndex,
+                    getIndex,
+                    normaliseBoard
+                );
+        }
+
+        private static OutcomeSearcher FromFile(
+            string filename,
+            uint maxIndex,
+            IndexGetter getIndex,
+            BoardNormaliser normaliseBoard
+        )
+        {
             SubTableEntry?[] WhiteTable = new SubTableEntry?[maxIndex];
             SubTableEntry?[] BlackTable = new SubTableEntry?[maxIndex];
 
@@ -102,12 +152,42 @@ namespace TidyTable.Tables
                 }
             }
 
-            GetOutcome = (in Board board) =>
+            return (in Board board) =>
             {
                 var table = board.CurrentPlayer == Player.White ? WhiteTable : BlackTable;
                 var boardCopy = new Board(board);
                 normaliseBoard(boardCopy);
                 return table[getIndex(boardCopy)];
+            };
+        }
+
+        private static OutcomeSearcher FromSymmetricFile(
+            string filename,
+            uint maxIndex,
+            IndexGetter getIndex,
+            BoardNormaliser normaliseBoard
+        )
+        {
+            SubTableEntry?[] Table = new SubTableEntry?[maxIndex];
+
+            // TODO: Allow compression in between
+            if (!File.Exists(filename)) throw new FileNotFoundException(filename);
+            using var stream = File.Open(filename, FileMode.Open);
+
+            for (int i = 0; i < Table.Length; i++)
+            {
+                var bytes = new byte[2];
+                stream.Read(bytes, 0, 2);
+                ushort value = (ushort)((bytes[0] << 8) + bytes[1]);
+                Table[i] = SubTableEntry.FromShort(value);
+            }
+
+            return (in Board board) =>
+            {
+                var boardCopy = new Board(board);
+                if (board.CurrentPlayer == Player.Black) FlipColour(boardCopy);
+                normaliseBoard(boardCopy);
+                return Table[getIndex(boardCopy)];
             };
         }
     }

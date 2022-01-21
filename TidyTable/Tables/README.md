@@ -10,6 +10,7 @@ TODO:
   much smaller than current 16-bits per position/side.
 - Only store half for symmetric tables: KQKQ only needs outcomes for white to move  
 - DTM/DTZ should be 0 for drawn positions, regardless of 50-Move rule or stalemate
+- Commonise lots of the methods for writing/reading symmetric files
 
 Descriptions of other techniques:  
 - Better compression, try "Limited-Reference" variant of Lempel-Ziv,
