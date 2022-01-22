@@ -101,8 +101,14 @@ namespace TidyTable.Tables
             }
         }
 
+        // !!! TODO: 1) Move itself may 0 the DTM,
+        //           2) May have to lookup the DTM in a subtable if capture,
+        //           3) Must filter by moves that actually win in the winning case
+        //     These affect both getting the DTM and the best move
         private int DTMForMove(Board board, GameExtraInfo gameInfo, Move move)
         {
+            throw new NotImplementedException("See notes above method for parts missing");
+
             // Relies on this method not modifying (normalising) the object passed to it
             board.MakeMoveWithoutRecording(move);
             var dtm = DTM(board);

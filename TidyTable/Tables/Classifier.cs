@@ -36,6 +36,14 @@ namespace TidyTable.Tables
             return ClassifyPieceLists(whitePieces, blackPieces);
         }
 
+        public static string ClassifyWithoutKings(List<PieceKind> pieces)
+        {
+            return ClassifyPieceLists(
+                pieces.Where(piece => (byte)piece < 6).Select(piece => (ColourlessPiece)piece).ToList(),
+                pieces.Where(piece => (byte)piece >= 6).Select(piece => (ColourlessPiece)((byte)piece - 6)).ToList()
+            );
+        }
+
         public static string ClassifyPieceLists(List<ColourlessPiece> whitePieces, List<ColourlessPiece> blackPieces)
         {
             var whiteStrings = whitePieces.Select(piece => names[piece]).ToList();

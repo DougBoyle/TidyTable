@@ -3,6 +3,7 @@ using Chessington.GameEngine;
 using Chessington.GameEngine.Pieces;
 using TidyTable.Compression;
 using TidyTable.Endgames;
+using TidyTable.Tablebase;
 using TidyTable.TableFormats;
 using TidyTable.Tables;
 
@@ -19,7 +20,6 @@ if (args.Length >= 2)
 var watch = new System.Diagnostics.Stopwatch();
 watch.Start();
 
-// TODO: Let this load from file instead again
 TidyTable.Tablebase.FourPieces.KQKR();
 
 watch.Stop();
