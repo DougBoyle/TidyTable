@@ -21,6 +21,8 @@ namespace TidyTable.Tables
         public readonly List<ColourlessPiece> Pieces;
         readonly Dictionary<string, SubTable> SubTables;
 
+        private readonly bool includeEnPassantCases;
+
         // Each normalised position lists an outcome/move for just one colour, since table symmetric
         public readonly TableEntry?[] Table;
         public readonly uint MaxIndex;
@@ -49,6 +51,7 @@ namespace TidyTable.Tables
             MaxIndex = maxIndex;
             GetIndex = getIndex;
             NormaliseBoard = normaliseBoard;
+            includeEnPassantCases = pieces.Contains(ColourlessPiece.Pawn);
         }
 
         public void SolveForPieces()
@@ -85,7 +88,6 @@ namespace TidyTable.Tables
         // (Any other positions, will check opponent's king isn't already attacked before adding to that board)
         private void PopulateTable()
         {
-            // TODO: When 1+ pawn on each side, will also need to handle en-passant
             // TODO: Commonise with non-symmetric case
 
             // handle kings explicitly, since always present. All other pieces => 1 piece of each colour
@@ -124,6 +126,7 @@ namespace TidyTable.Tables
                 {
                     // TODO: Don't need to duplicate boardCopy?
                     Table[index] = new TableEntry(index, boardCopy);
+                    if (includeEnPassantCases) AddEnPassantCases(boardCopy);
                 }
             }
             else
@@ -148,6 +151,30 @@ namespace TidyTable.Tables
             }
         }
 
+        // Only needs to set the en-passant square/create a table entry when an en-passant capture could be possible
+        // Following the same symmetry used elsewhere, only consider when white can capture en-passant
+        private void AddEnPassantCases(Board board)
+        {
+            for (int col = 0; col < 8; col++)
+            {
+                byte epSqure = (byte)(40 + col);
+                // avoid computing indices when not actually an en-passant position
+                if (board.PieceBoard[epSqure - 8] == (byte)PieceKind.BlackPawn
+                    && board.PieceBoard[epSqure] == (byte)PieceKind.NoPiece
+                    && board.PieceBoard[epSqure + 8] == (byte)PieceKind.NoPiece
+                    && ((col > 0 && board.PieceBoard[epSqure - 9] == (byte)PieceKind.WhitePawn)
+                        || (col < 7 && board.PieceBoard[epSqure - 7] == (byte)PieceKind.WhitePawn))
+                )
+                {
+                    var copy = new Board(board)
+                    {
+                        EnPassantIndex = epSqure
+                    };
+                    var index = GetIndex(copy);
+                    Table[index] = new TableEntry(index, copy);
+                }
+            }
+        }
         private void UpdateTable()
         {
             Parallel.For(0, Table.Length, tableIndex =>

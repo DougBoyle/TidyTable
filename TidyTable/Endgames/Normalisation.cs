@@ -50,7 +50,12 @@ namespace TidyTable.Endgames
         {
             byte king = board.FindKing(Player.White);
             // flip into left half of board
-            if ((king & 7) >= 4) ReverseAlongRows(board);
+            if ((king & 7) >= 4)
+            {
+                ReverseAlongRows(board);
+                // For pawn boards, potentially also need to chaange the en-passant index
+                if (board.EnPassantIndex != Board.NO_SQUARE) board.EnPassantIndex ^= 7;
+            }
         }
 
 

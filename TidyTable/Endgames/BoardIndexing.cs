@@ -1,4 +1,5 @@
 ﻿using Chessington.GameEngine;
+using Chessington.GameEngine.Bitboard;
 using Chessington.GameEngine.Pieces;
 using System;
 using System.Collections.Generic;
@@ -198,14 +199,218 @@ namespace TidyTable.Endgames
     //       Encode pawn to be captured as 0-7, leftmost pawn to capture it as 0/1 (leftmost in case pawn each side)
     //       Can ignore whenever En-Passant available but capture not possible
 
-    /*  // First sort to put any pawns at the start, only needed for when both sides have pawns
-        nonKingPieces.Sort((p1, p2) =>
+    // Same as when only white has a pawn, but with extra cases for being able to capture en-passant:
+    // Only considered En-passant when would actually be able to make the capture
+    // Count the 8 positions of the pawn to be captured, also counting 0/1 = left/right for the capturing pawn when not a/h file
+    // If capturing pawn either side of pawn, the EP capturing one is the one on the left.
+    // The special pawns are considered 'first' in piece order so as not to affect value of other pieces
+
+    // En-passant is only available to one player, so the black/white EP entries for this table will refer to different positions
+    // where the other player has the corresponding en-passant capture available
+    public class GeneralBoardIndexing : BoardIndexer
+    {
+        public uint MaxIndex { get; }
+
+        private readonly List<PieceKind> nonKingPieces;
+        private readonly int wkValue;
+        private readonly int bkValue;
+        private readonly int[] pieceValues;
+
+        private readonly int epWkValue;
+        private readonly int epBkValue;
+        private readonly List<PieceKind> epNonKingPieces; // without the black/white pawn involved in en-passant
+        private readonly int[] epPieceValues; // different when in en-passant, ignore two pawns
+        private readonly int epPawnsValue;
+
+
+        private ulong occupancy;
+        private ulong pawnOccupancy;
+        private readonly ulong[] bitboards = new ulong[12];
+
+        public GeneralBoardIndexing(List<PieceKind> nonKingPieces)
+        {
+            // Below is the same as for when just white has pawns, but we need to check for black or white pawns
+            if (nonKingPieces.Count > 3) throw new ArgumentException("int index can only accomodate 5 pieces including kings");
+            this.nonKingPieces = nonKingPieces;
+            nonKingPieces.Sort((p1, p2) => PawnsFirstValue(p1) - PawnsFirstValue(p2)); // put pawns at start of list
+
+            pieceValues = new int[nonKingPieces.Count];
+
+            int currentValue = 1;
+            for (int i = pieceValues.Length - 1; i >= 0; i--)
             {
-                var p1IsPawn = IsPawn(p1);
-                var p2IsPawn = IsPawn(p2);
-                return Convert.ToInt32(p2IsPawn) - Convert.ToInt32(p1IsPawn); // -ve if p1 pawn, hence p1 smaller
-            }); 
-    */
+                pieceValues[i] = currentValue;
+                // Use the fact that pawns are first, so number of pawn squares is 48 - i
+                int numberOfValidSquares = IsPawn(nonKingPieces[i]) ? 48 - i : 64 - 2 - i;
+                currentValue *= numberOfValidSquares;
+            }
+            bkValue = currentValue;
+            wkValue = bkValue * 62;
+
+            // En-passant specific values, effectively ignore the first pawn of each colour
+            epNonKingPieces = new List<PieceKind>(nonKingPieces);
+            epNonKingPieces.Remove(PieceKind.WhitePawn);
+            epNonKingPieces.Remove(PieceKind.BlackPawn);
+            epPieceValues = new int[epNonKingPieces.Count];
+
+            currentValue = 1;
+            for (int i = epPieceValues.Length - 1; i >= 0; i--)
+            {
+                epPieceValues[i] = currentValue;
+                // Can subtract an extra 4 on the basis that a white/black pawn have already been excluded,
+                // and the EP-square and square either above/below it are not occupied (+2 for the kings)
+                int numberOfValidSquares = IsPawn(nonKingPieces[i]) ? 48 - 4 - i : 64 - 6 - i;
+                currentValue *= numberOfValidSquares;
+            }
+            epBkValue = currentValue;
+            epWkValue = epBkValue * 62;
+            epPawnsValue = epWkValue * 32; // usually the maximum index, but in terms of EP piece values
+
+            MaxIndex = (uint)(wkValue * 32 + epPawnsValue * 14); // 14 = 1 + 2*6 + 1 positions that could attack the EP black pawn
+        }
+
+        // ensures pieces stay together when sorted, but puts each type of pawn at front
+        private static int PawnsFirstValue(PieceKind piece)
+        {
+            return piece switch
+            {
+                PieceKind.WhitePawn => -1,
+                PieceKind.BlackPawn => 0,
+                _ => (int)piece,
+            };
+        }
+
+        public uint Index(Board board)
+        {
+            occupancy = board.Bitboards[(byte)PieceKind.WhiteKing] | board.Bitboards[(byte)PieceKind.BlackKing];
+            // count the number of pawns separately, restricted to indices 8-55
+            pawnOccupancy = 0UL;
+            Array.Copy(board.Bitboards, bitboards, 12);
+
+            // Check for en-passant, exclude the corresponding pieces from the copy of the bitboards
+            // for remaining index calculation, but do add to occupancy bitboard along with EP-square and pawn square before move
+            // TODO: Extract some parts of updating masks into a function/handle different players better
+            if (board.EnPassantIndex != Board.NO_SQUARE)
+            {
+                int column = board.EnPassantIndex & 7;
+                ulong bit = 1UL << board.EnPassantIndex;
+                switch (board.CurrentPlayer)
+                {
+                    case Player.White:
+                        var pawnBoard = board.Bitboards[(byte)PieceKind.WhitePawn];
+                        ulong leftCapture = ((bit & OtherMasks.Not_A_File) >> 9) & pawnBoard;
+                        if (leftCapture != 0)
+                        {
+                            pawnOccupancy = (bit << 8) | bit | (bit >> 8) | leftCapture;
+                            occupancy |= pawnOccupancy;
+                            bitboards[(byte)PieceKind.WhitePawn] ^= leftCapture;
+                            bitboards[(byte)PieceKind.BlackPawn] ^= bit >> 8;
+                            return IndexEp(board, 1 + 2 * column);
+                        }
+                        ulong rightCapture = ((bit & OtherMasks.Not_H_File) >> 7) & pawnBoard;
+                        if (rightCapture != 0)
+                        {
+                            pawnOccupancy= (bit << 8) | bit | (bit >> 8) | rightCapture;
+                            occupancy |= pawnOccupancy;
+                            bitboards[(byte)PieceKind.WhitePawn] ^= rightCapture;
+                            bitboards[(byte)PieceKind.BlackPawn] ^= bit >> 8;
+                            return IndexEp(board, 2 * column);
+                        }
+                        break;
+                    case Player.Black:
+                        pawnBoard = board.Bitboards[(byte)PieceKind.BlackPawn];
+                        leftCapture = ((bit & OtherMasks.Not_A_File) << 7) & pawnBoard;
+                        if (leftCapture != 0) {
+                            pawnOccupancy = (bit << 8) | bit | (bit >> 8) | leftCapture;
+                            occupancy |= pawnOccupancy;
+                            bitboards[(byte)PieceKind.BlackPawn] ^= leftCapture;
+                            bitboards[(byte)PieceKind.WhitePawn] ^= bit << 8;
+                            return IndexEp(board, 1 + 2 * column); 
+                        }
+                        rightCapture = ((bit & OtherMasks.Not_H_File) << 9) & pawnBoard;
+                        if (rightCapture != 0)
+                        {
+                            pawnOccupancy = (bit << 8) | bit | (bit >> 8) | rightCapture;
+                            occupancy |= pawnOccupancy;
+                            bitboards[(byte)PieceKind.BlackPawn] ^= rightCapture;
+                            bitboards[(byte)PieceKind.WhitePawn] ^= bit << 8;
+                            return IndexEp(board, 2 * column);
+                        }
+                        break;
+                }
+            }
+            return IndexNonEp(board);
+        }
+
+        public uint IndexNonEp(Board board)
+        {
+            int whiteKingIndex = board.FindKing(Player.White);
+            // can discard bit 3 = which half of row, and shift bits for which row down one
+            int whiteKingHalfBoardIndex = ((whiteKingIndex & 56) >> 1) + (whiteKingIndex & 0x3);
+            int index = whiteKingHalfBoardIndex * wkValue;
+
+            int blackKingIndex = board.FindKing(Player.Black);
+            index += (blackKingIndex > whiteKingIndex ? blackKingIndex - 2 : blackKingIndex) * bkValue;
+
+            // handle non-king pieces
+            for (int i = 0; i < nonKingPieces.Count; i++)
+            {
+                var piece = nonKingPieces[i];
+                var value = pieceValues[i];
+                ulong bit = BitUtils.PopLSB(ref bitboards[(byte)piece]);
+                if (bit == 0) throw new ArgumentException($"Board was missing a {piece}");
+                if (IsPawn(piece))
+                {
+                    var numPreviousPawns = BitUtils.Count1s((bit - 1) & pawnOccupancy);
+                    index += value * (BitUtils.BitToIndex(bit) - 8 - numPreviousPawns);
+                    pawnOccupancy |= bit;
+                }
+                else
+                {
+                    var numPreviousPieces = BitUtils.Count1s((bit - 1) & occupancy);
+                    index += value * (BitUtils.BitToIndex(bit) - numPreviousPieces);
+                }
+                occupancy |= bit;
+            }
+            return (uint)index;
+        }
+
+        // TODO: Could commonise with normal method by passing in a 'values' object of either normal or EP values
+        public uint IndexEp(Board board, int epCase)
+        {
+            int index = 32*wkValue + epCase*epPawnsValue; // offset past non-ep and earlier ep cases
+
+            int whiteKingIndex = board.FindKing(Player.White);
+            // can discard bit 3 = which half of row, and shift bits for which row down one
+            int whiteKingHalfBoardIndex = ((whiteKingIndex & 56) >> 1) + (whiteKingIndex & 0x3);
+            index += whiteKingHalfBoardIndex * epWkValue;
+
+            int blackKingIndex = board.FindKing(Player.Black);
+            index += (blackKingIndex > whiteKingIndex ? blackKingIndex - 2 : blackKingIndex) * epBkValue;
+
+            // handle non-king pieces
+            for (int i = 0; i < epNonKingPieces.Count; i++)
+            {
+                var piece = epNonKingPieces[i];
+                var value = epPieceValues[i];
+                ulong bit = BitUtils.PopLSB(ref bitboards[(byte)piece]);
+                if (bit == 0) throw new ArgumentException($"Board was missing a {piece}");
+                if (IsPawn(piece))
+                {
+                    var numPreviousPawns = BitUtils.Count1s((bit - 1) & pawnOccupancy);
+                    index += value * (BitUtils.BitToIndex(bit) - 8 - numPreviousPawns);
+                    pawnOccupancy |= bit;
+                }
+                else
+                {
+                    var numPreviousPieces = BitUtils.Count1s((bit - 1) & occupancy);
+                    index += value * (BitUtils.BitToIndex(bit) - numPreviousPieces);
+                }
+                occupancy |= bit;
+            }
+            return (uint)index;
+        }
+    }
 
     public static class BoardIndexing
     {

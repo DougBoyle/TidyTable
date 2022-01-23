@@ -20,6 +20,8 @@ namespace TidyTable.Tables
         public readonly List<ColourlessPiece> BlackPieces;
         readonly Dictionary<string, SubTable> SubTables;
 
+        private readonly bool includeEnPassantCases;
+
         // Each normalised position lists an outcome/move for both black/white
         public readonly TableEntry?[] WhiteTable;
         public readonly TableEntry?[] BlackTable;
@@ -52,6 +54,7 @@ namespace TidyTable.Tables
             MaxIndex = maxIndex;
             GetIndex = getIndex;
             NormaliseBoard = normaliseBoard;
+            includeEnPassantCases = whitePieces.Contains(ColourlessPiece.Pawn) && blackPieces.Contains(ColourlessPiece.Pawn);
         }
 
         public void SolveForPieces()
@@ -92,8 +95,6 @@ namespace TidyTable.Tables
         // (Any other positions, will check opponent's king isn't already attacked before adding to that board)
         private void PopulateTable()
         {
-            // TODO: When 1+ pawn on each side, will also need to handle en-passant
-
             // handle kings explicitly, since always present
             var otherPieces = WhitePieces.Where(piece => piece != ColourlessPiece.King).Select(piece => (PieceKind)piece)
                 .Concat(BlackPieces.Where(piece => piece != ColourlessPiece.King).Select(piece => (PieceKind)(piece + 6))).ToList();
@@ -128,12 +129,14 @@ namespace TidyTable.Tables
                 if (WhiteTable[index] == null && !boardCopy.InCheck(Player.Black))
                 {
                     WhiteTable[index] = new TableEntry(index, new Board(boardCopy));
+                    if (includeEnPassantCases) AddWhiteEnPassantCases(boardCopy);
                 }
                 if (BlackTable[index] == null && !boardCopy.InCheck(Player.White))
                 {
                     var blackBoard = new Board(boardCopy);
                     blackBoard.CurrentPlayer = Player.Black;
                     BlackTable[index] = new TableEntry(index, blackBoard);
+                    if (includeEnPassantCases) AddBlackEnPassantCases(blackBoard);
                 }
             }
             else
@@ -155,6 +158,53 @@ namespace TidyTable.Tables
                     }
                 }
                 pieces.Insert(0, piece);
+            }
+        }
+
+        // Only needs to set the en-passant square/create a table entry when an en-passant capture could be possible
+        private void AddWhiteEnPassantCases(Board board)
+        {
+            for (int col = 0; col < 8; col++)
+            {
+                byte epSqure = (byte)(40 + col);
+                // avoid computing indices when not actually an en-passant position
+                if (board.PieceBoard[epSqure - 8] == (byte)PieceKind.BlackPawn
+                    && board.PieceBoard[epSqure] == (byte)PieceKind.NoPiece
+                    && board.PieceBoard[epSqure + 8] == (byte)PieceKind.NoPiece
+                    && ((col > 0 && board.PieceBoard[epSqure - 9] == (byte)PieceKind.WhitePawn)
+                        || (col < 7 && board.PieceBoard[epSqure - 7] == (byte)PieceKind.WhitePawn))
+                )
+                {
+                    var copy = new Board(board)
+                    {
+                        EnPassantIndex = epSqure
+                    };
+                    var index = GetIndex(copy);
+                    WhiteTable[index] = new TableEntry(index, copy);
+                }
+            }
+        }
+
+        private void AddBlackEnPassantCases(Board board)
+        {
+            for (int col = 0; col < 8; col++)
+            {
+                byte epSqure = (byte)(16 + col);
+                // avoid computing indices when not actually an en-passant position
+                if (board.PieceBoard[epSqure + 8] == (byte)PieceKind.WhitePawn
+                    && board.PieceBoard[epSqure] == (byte)PieceKind.NoPiece
+                    && board.PieceBoard[epSqure - 8] == (byte)PieceKind.NoPiece
+                    && ((col > 0 && board.PieceBoard[epSqure + 7] == (byte)PieceKind.BlackPawn)
+                        || (col < 7 && board.PieceBoard[epSqure + 9] == (byte)PieceKind.BlackPawn))
+                )
+                {
+                    var copy = new Board(board)
+                    {
+                        EnPassantIndex = epSqure
+                    };
+                    var index = GetIndex(copy);
+                    BlackTable[index] = new TableEntry(index, copy);
+                }
             }
         }
 

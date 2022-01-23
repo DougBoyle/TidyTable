@@ -129,6 +129,7 @@ namespace TidyTable.Tablebase
             return orderedList;
         }
 
+        // TODO: Use symmetric tables where possible
         public static void SolveAllTables()
         {
             var pieceLists = OrderTables();
