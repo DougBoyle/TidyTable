@@ -36,29 +36,38 @@ namespace TidyTable.Tables
             return ClassifyPieceLists(whitePieces, blackPieces);
         }
 
-        public static string ClassifyWithoutKings(List<PieceKind> pieces)
-        {
-            return ClassifyPieceLists(
+        public static string Classify(List<PieceKind> pieces) =>
+            ClassifyPieceLists(
                 pieces.Where(piece => (byte)piece < 6).Select(piece => (ColourlessPiece)piece).ToList(),
                 pieces.Where(piece => (byte)piece >= 6).Select(piece => (ColourlessPiece)((byte)piece - 6)).ToList()
             );
-        }
-
+            
         public static string ClassifyPieceLists(List<ColourlessPiece> whitePieces, List<ColourlessPiece> blackPieces)
         {
-            var whiteStrings = whitePieces.Select(piece => names[piece]).ToList();
-            var blackStrings = blackPieces.Select(piece => names[piece]).ToList();
-            whiteStrings.Sort();
-            blackStrings.Sort();
-            var whiteString = string.Join(null, whiteStrings);
-            var blackString = string.Join(null, blackStrings);
+            var whiteString = StringForPieces(whitePieces);
+            var blackString = StringForPieces(blackPieces);
             return $"{whiteString}-{blackString}";
+        }
+
+        public static string StringForPieces(List<ColourlessPiece> pieces)
+        {
+            var strings = pieces.Select(piece => names[piece]).ToList();
+            strings.Sort();
+            return string.Join(null, strings);
         }
 
         public static string ReverseClassification(string classification)
         {
             var classificationParts = classification.Split('-');
             return $"{classificationParts[1]}-{classificationParts[0]}";
+        }
+
+        // Each table solves both colours of a table, so use a colourless version for describing dependencies between tables
+        public static string ClassifyColourless(List<PieceKind> pieces)
+        {
+            var whiteString = StringForPieces(pieces.Where(piece => (byte)piece < 6).Select(piece => (ColourlessPiece)piece).ToList());
+            var blackString = StringForPieces(pieces.Where(piece => (byte)piece >= 6).Select(piece => (ColourlessPiece)((byte)piece - 6)).ToList());
+            return string.Compare(whiteString, blackString) <= 0 ? $"{whiteString}-{blackString}" : $"{blackString}-{whiteString}";
         }
     }
 }

@@ -20,7 +20,9 @@ if (args.Length >= 2)
 var watch = new System.Diagnostics.Stopwatch();
 watch.Start();
 
-TidyTable.Tablebase.FourPieces.KQKR();
+// Dependencies.OrderTables().ForEach(table => Console.WriteLine(Classifier.ClassifyColourless(table)));
+// FourPieces.KQKR();
+Dependencies.SolveAllTables();
 
 watch.Stop();
 Console.WriteLine($"Execution Time: {watch.ElapsedMilliseconds} ms");

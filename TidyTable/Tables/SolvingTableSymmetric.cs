@@ -44,8 +44,7 @@ namespace TidyTable.Tables
         {
             Classification = Classifier.ClassifyPieceLists(pieces, pieces);
             Pieces = pieces;
-            SubTables = subTables.Concat(subTables.Select(table => table.SwappedColour()))
-                .ToDictionary(table => table.Classification, table => table);
+            SubTables = subTables.ToDictionary(table => table.Classification, table => table);
             Table = new TableEntry[maxIndex];
             MaxIndex = maxIndex;
             GetIndex = getIndex;

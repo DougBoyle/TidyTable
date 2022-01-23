@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using TidyTable.Endgames;
 using TidyTable.Tables;
 
 namespace TidyTable.Tablebase
@@ -11,24 +12,21 @@ namespace TidyTable.Tablebase
     // Everything in this file assumes kings not included
     internal class Dependencies
     {
-        // TODO: Special case warning about pawns on both sides
-        public static List<List<PieceKind>> DependsOn(List<PieceKind> pieces)
+        const string TablePrefix = "tables/automated/";
+
+        // returns a list of colour-independent tables that need solving before this table
+        public static HashSet<string> DependsOn(List<PieceKind> pieces)
         {
-            List<List<PieceKind>> result = new();
-            HashSet<string> covered = new();
+            HashSet<string> result = new();
 
             void AddIfNeeded(List<PieceKind> pieces)
             {
                 if (IsInsufficientMaterialWithoutKings(pieces)) return;
                 
-                var classification = Classifier.ClassifyWithoutKings(pieces);
-                var reverse = Classifier.ReverseClassification(classification);
-                // Due to how cases added, should always be sufficient to check just one
-                if (covered.Contains(classification) || covered.Contains(reverse)) return;
-                
-                covered.Add(classification);
-                covered.Add(reverse);
-                result.Add(pieces);
+                var classification = Classifier.ClassifyColourless(pieces);
+                if (result.Contains(classification)) return;
+
+                result.Add(classification);
             }
 
             for (int i = 0; i < pieces.Count; i++)
@@ -52,7 +50,9 @@ namespace TidyTable.Tablebase
         }
 
         public static List<List<PieceKind>> AllThreePieces() => new List<List<PieceKind>> {
-            new List<PieceKind>{ PieceKind.WhiteRook }, new List<PieceKind>{ PieceKind.WhiteQueen }
+            new List<PieceKind>{ PieceKind.WhiteRook },
+            new List<PieceKind>{ PieceKind.WhiteQueen },
+            new List<PieceKind>{ PieceKind.WhitePawn },
         };
 
         // 4 pieces, not counting when both pieces on one side
@@ -105,5 +105,72 @@ namespace TidyTable.Tablebase
         public static bool IsMinorPiece(PieceKind piece) =>
             piece == PieceKind.WhiteKnight || piece == PieceKind.BlackKnight
             || piece == PieceKind.WhiteBishop || piece == PieceKind.BlackBishop;
+
+        public static List<List<PieceKind>> OrderTables()
+        {
+            List<List<PieceKind>> allTables = AllThreePieces().Concat(AllFourPieces()).ToList();
+            List<List<PieceKind>> orderedList = new();
+            HashSet<string> covered = new();
+            // to catch algorithm getting stuck
+            var changing = true;
+            while (changing)
+            {
+                changing = false;
+                var tablesReadyToSolve = allTables.Where(table => DependsOn(table).IsSubsetOf(covered)).ToList();
+                allTables.RemoveAll(table => tablesReadyToSolve.Contains(table));
+                orderedList.AddRange(tablesReadyToSolve);
+                foreach (var table in tablesReadyToSolve)
+                {
+                    changing = true;
+                    covered.Add(Classifier.ClassifyColourless(table));
+                }
+            }
+            if (allTables.Count > 0) throw new ArgumentException("Missing tables required to solve others");
+            return orderedList;
+        }
+
+        public static void SolveAllTables()
+        {
+            var pieceLists = OrderTables();
+            // TODO: For now, don't worry about keeping other data around/writing it to a file/compressing
+            //       Just check all tables can be recursively solved.
+            //       LoadFromFileElseSolve will actually write the tables of best moves too if filename given as KPK.dtm etc.
+            var solvedTables = new List<SubTable>();
+            foreach (var table in pieceLists)
+            {
+
+                var hasPawns = table.Any(piece => piece == PieceKind.WhitePawn || piece == PieceKind.BlackPawn);
+                var hasBlackPawns = table.Any(piece => piece == PieceKind.BlackPawn);
+                
+                BoardIndexer indexer = !hasPawns ? new NoPawnBoardIndexing(table)
+                    : !hasBlackPawns ? new WhitePawnBoardIndexing(table)
+                    : throw new NotSupportedException("Indexing/normalisation for pawns on black/both sides not yet implemented");
+                BoardNormaliser normaliser = hasPawns ? Normalisation.NormalisePawnsBoard : Normalisation.NormaliseNoPawnsBoard;
+
+
+                // include the kings in the filename, as they are expected for the actual table classifications
+                var tableWithKings = new List<PieceKind>(table)
+                {
+                    PieceKind.WhiteKing,
+                    PieceKind.BlackKing
+                };
+                var name = Classifier.Classify(tableWithKings);
+                Console.WriteLine($"Solving for table {name}");
+
+                var filename = TablePrefix + name + ".dtm"; // needed to write extra tables in LoadFromFileElseSolve
+
+                var solved = ThreePieces.LoadFromFileElseSolve(
+                    filename,
+                    tableWithKings.Where(piece => (byte)piece < 6).Select(piece => (ColourlessPiece)piece).ToList(),
+                    tableWithKings.Where(piece => (byte)piece >= 6).Select(piece => (ColourlessPiece)((byte)piece - 6)).ToList(),
+                    solvedTables,
+                    indexer,
+                    normaliser
+                );
+                solvedTables.Add(solved);
+
+                Console.WriteLine($"Solved table {name}");
+            }
+        }
     }
 }

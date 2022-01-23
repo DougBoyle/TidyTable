@@ -55,17 +55,20 @@ namespace TidyTable.Tablebase
             var whitePieces = new List<CP> { CP.King, CP.Pawn };
             var blackPieces = new List<CP> { CP.King };
             var indexer = new WhitePawnBoardIndexing(new List<PieceKind> { PieceKind.WhitePawn });
+            var subTables = new List<SubTable>() { KRK(), KQK() }; // flipping is actually unnecessary in this case
 
             return LoadFromFileElseSolve(
                 filename,
                 whitePieces,
                 blackPieces,
-                new List<SubTable>() { KQK(), KRK() },
+                subTables.Concat(subTables.Select(table => table.SwappedColour())).ToList(),
                 indexer,
                 Normalisation.NormalisePawnsBoard
             );
         }
 
+        // Must generate the subtables for the reverse colour before calling this (for efficient reuse where possible).
+        // Cheap to do, so generally always reverse each table once rather than work out which do/don't need both.
         public static SubTable LoadFromFileElseSolve(
             string filename,
             List<CP> whitePieces,
@@ -91,7 +94,7 @@ namespace TidyTable.Tablebase
                 var table = new SolvingTable(
                     whitePieces,
                     blackPieces,
-                    subTables,
+                    subTables.Concat(subTables.Select(table => table.SwappedColour())).ToList(),
                     indexer.MaxIndex,
                     indexer.Index,
                     normalisation

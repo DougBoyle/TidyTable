@@ -21,12 +21,14 @@ namespace TidyTable.Tablebase
             var whitePieces = new List<CP> { CP.King, CP.Queen };
             var blackPieces = new List<CP> { CP.King, CP.Queen };
             var indexer = new NoPawnBoardIndexing(new List<PieceKind> { PieceKind.WhiteQueen, PieceKind.BlackQueen });
+            var subTables = new List<SubTable>() { KQK() };
+
 
             return LoadFromFileElseSolve(
                 filename,
                 whitePieces,
                 blackPieces,
-                new List<SubTable>() { KQK() },
+                subTables.Concat(subTables.Select(table => table.SwappedColour())).ToList(),
                 indexer,
                 Normalisation.NormaliseNoPawnsBoard
             );
@@ -38,12 +40,13 @@ namespace TidyTable.Tablebase
             var whitePieces = new List<CP> { CP.King, CP.Queen };
             var blackPieces = new List<CP> { CP.King, CP.Rook };
             var indexer = new NoPawnBoardIndexing(new List<PieceKind> { PieceKind.WhiteQueen, PieceKind.BlackRook });
+            var subTables = new List<SubTable>() { KQK(), KRK() };
 
             return LoadFromFileElseSolve(
                 filename,
                 whitePieces,
                 blackPieces,
-                new List<SubTable>() { KQK(), KRK() },
+                subTables.Concat(subTables.Select(table => table.SwappedColour())).ToList(),
                 indexer,
                 Normalisation.NormaliseNoPawnsBoard
             );
@@ -56,12 +59,13 @@ namespace TidyTable.Tablebase
             var whitePieces = new List<CP> { CP.King, CP.Rook };
             var blackPieces = new List<CP> { CP.King, CP.Rook };
             var indexer = new NoPawnBoardIndexing(new List<PieceKind> { PieceKind.WhiteRook, PieceKind.BlackRook });
+            var subTables = new List<SubTable>() { KRK() };
 
             return LoadFromFileElseSolve(
                 filename,
                 whitePieces,
                 blackPieces,
-                new List<SubTable>() { KRK() },
+                subTables.Concat(subTables.Select(table => table.SwappedColour())).ToList(),
                 indexer,
                 Normalisation.NormaliseNoPawnsBoard
             );
@@ -73,12 +77,13 @@ namespace TidyTable.Tablebase
             var whitePieces = new List<CP> { CP.King, CP.Pawn };
             var blackPieces = new List<CP> { CP.King, CP.Knight };
             var indexer = new WhitePawnBoardIndexing(new List<PieceKind> { PieceKind.WhitePawn, PieceKind.BlackKnight });
+            var subTables = new List<SubTable>() { KPK() };
 
             return LoadFromFileElseSolve(
                 filename,
                 whitePieces,
                 blackPieces,
-                new List<SubTable>() { KPK() },
+                subTables.Concat(subTables.Select(table => table.SwappedColour())).ToList(),
                 indexer,
                 Normalisation.NormalisePawnsBoard
             );
