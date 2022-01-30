@@ -1,35 +1,39 @@
 ﻿using Chessington.GameEngine;
 using Chessington.GameEngine.AI;
+using Chessington.GameEngine.Pieces;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using TidyTable.TableFormats;
+using TidyTable.Endgames;
+using static Chessington.GameEngine.AI.Endgame.NormalForm;
 
 namespace TidyTable.Tables
 {
-    public class DTMTable // TODO: Create this, only storing DTM for white and using sub-DTM tables/small search to lookup
+    // TODO: Do this for DTZ instead?
+    public class DTMTable
     {
-        public string Classification;
+        public readonly string Classification;
 
-        private BoardNormaliser normalise;
-        private IndexGetter getIndex;
-        private WLDTable WLDTable;
-        private sbyte[] Data;
+        private readonly BoardNormaliser normalise;
+        private readonly IndexGetter getIndex;
+        private readonly WLDTable WLDTable;
+        private readonly Dictionary<string, DTMTable> allTables;
+        private readonly sbyte[] Data;
 
-        private int maxBits = 0;
+        private readonly int maxBits = 0;
 
-        public DTMTable(
-            WLDTable wldTable, // TODO: Having both of these is redundant
-            SolvingTable table 
-        )
+        public DTMTable(SolvingTable table, Dictionary<string, DTMTable> allTables)
         {
+            this.allTables = allTables;
+
             Classification = table.Classification;
             normalise = table.NormaliseBoard;
             getIndex = table.GetIndex;
 
-            WLDTable = wldTable;
+            WLDTable = new WLDTable(table);
             Data = new sbyte[table.MaxIndex]; // only stores values for white
             for (int i = 0; i < table.WhiteTable.Length; i++)
             {
@@ -42,9 +46,13 @@ namespace TidyTable.Tables
                 Data[i] = dtm;
             }
             maxBits = (int)Math.Floor(Math.Log2(maxBits)) + 1;
+
+            AddSelfToAllTables();
         }
 
-        public int DTM(in Board board)
+        public Outcome GetOutcome(in Board board) => WLDTable.GetOutcome(board);
+
+        public virtual int DTM(in Board board)
         {
             // Probably unnecessary
             var copy = new Board(board);
@@ -67,17 +75,17 @@ namespace TidyTable.Tables
                 var gameInfo = new GameExtraInfo(board);
                 if (outcome == Outcome.Win)
                 {
-                    return availableMoves.Select(move => DTMForMove(copy, gameInfo, move)).Min();
+                    return availableMoves.Select(move => DTMForMove(copy, gameInfo, move, requiredOutcome: Outcome.Lose)).Min();
                 } else
                 {
-                    return availableMoves.Select(move => DTMForMove(copy, gameInfo, move)).Max();
+                    return availableMoves.Select(move => DTMForMove(copy, gameInfo, move, requiredOutcome: null)).Max();
                 }
             }
         }
 
         // DTM potentially requires a 1-ply search, and this therefore requires a 1 to 2-ply search
         // Applies the same trick as above of min/maximising the DTM, doing a self-call for the lookup
-        public Move? GetMove(in Board board)
+        public virtual Move? GetMove(in Board board)
         {
             // Not actually necessary
             var copy = new Board(board);
@@ -90,30 +98,43 @@ namespace TidyTable.Tables
             switch (WLDTable.GetOutcome(copy))
             {
                 case Outcome.Win:
-                    return moves.MinBy(move => DTMForMove(copy, gameInfo, move));
+                    return moves.MinBy(move => DTMForMove(copy, gameInfo, move, requiredOutcome: Outcome.Lose));
                 case Outcome.Lose:
-                    return moves.MaxBy(move => DTMForMove(copy, gameInfo, move));
+                    return moves.MaxBy(move => DTMForMove(copy, gameInfo, move, requiredOutcome: null));
                 default:
                     // DTMForMove always adds 1, and draws have DTM = 0, so look for first with DTMForMove 1
                     // Note: Drawn position, so no move leads to an immediate checkmate (other case where DTM = 0),
                     //      and cannot checkmate self on own turn, so any loses would take at least 2 ply => DTM > 1
-                    return moves.First(move => DTMForMove(copy, gameInfo, move) == 1);
+                    return moves.First(move => DTMForMove(copy, gameInfo, move, requiredOutcome: null) == 1);
             }
         }
 
-        // !!! TODO: 1) Move itself may 0 the DTM,
-        //           2) May have to lookup the DTM in a subtable if capture,
-        //           3) Must filter by moves that actually win in the winning case
-        //     These affect both getting the DTM and the best move
-        private int DTMForMove(Board board, GameExtraInfo gameInfo, Move move)
+        // requiredOutcome: For a win, must only consider subsequent positions losing for opponent
+        private int DTMForMove(Board board, GameExtraInfo gameInfo, Move move, Outcome? requiredOutcome)
         {
-            throw new NotImplementedException("See notes above method for parts missing");
-
             // Relies on this method not modifying (normalising) the object passed to it
             board.MakeMoveWithoutRecording(move);
-            var dtm = DTM(board);
+
+            var table = SelectTable(move, board);
+            int dtm;
+            if (requiredOutcome != null && ((table?.GetOutcome(board) ?? Outcome.Draw) != requiredOutcome)) dtm = 10000;
+            else dtm = table?.DTM(board) ?? 0;
+
             board.UndoMove(move, gameInfo);
             return dtm + 1;
+        }
+
+        private DTMTable? SelectTable(Move move, Board board)
+        {
+            if (move.CapturedPiece != (byte)PieceKind.NoPiece || move.PromotionPiece != (byte)PieceKind.NoPiece)
+            {
+                if (board.IsInsufficientMaterial()) return null;
+
+                var classification = Classifier.Classify(board);
+                return allTables[classification];
+
+            }
+            else return this;
         }
 
         public void WriteToFile(string filename)
@@ -146,11 +167,13 @@ namespace TidyTable.Tables
             IndexGetter getIndex,
             BoardNormaliser normaliseBoard,
             WLDTable wldTable,
-            int maxBits // number of bits needed to store maximum DTM present in the table
+            int maxBits, // number of bits needed to store maximum DTM present in the table
+             Dictionary<string, DTMTable> allTables
         )
         {
             if (!File.Exists(filename)) throw new FileNotFoundException(filename);
 
+            this.allTables = allTables;
             Classification = classification;
             normalise = normaliseBoard;
             this.getIndex = getIndex;
@@ -173,12 +196,58 @@ namespace TidyTable.Tables
                     Data[dataIndex++] = (sbyte)(buffer & bitMask);
                     buffer >>= maxBits;
                     bufferLength -= maxBits;
-                } else // read in another byte of data
+                }
+                else // read in another byte of data
                 {
                     buffer |= stream.ReadByte() << bufferLength;
                     bufferLength += 8;
                 }
             }
+
+            AddSelfToAllTables();
+        }
+
+        private void AddSelfToAllTables()
+        {
+            allTables[Classification] = this;
+            // additional table for flipped position if not symmetric
+            var reversed = Classifier.ReverseClassification(Classification);
+            if (reversed != Classification)
+            {
+                allTables[reversed] = new DTMTableReversed(this);
+            }
+        }
+
+        // for use by DTMTableReversed, flips the classification but just reverses all other fields
+        public DTMTable(DTMTable oppositeColour)
+        {
+            Classification = Classifier.ReverseClassification(oppositeColour.Classification);
+            normalise = oppositeColour.normalise;
+            getIndex = oppositeColour.getIndex;
+            WLDTable = oppositeColour.WLDTable;
+            allTables = oppositeColour.allTables;
+            Data = oppositeColour.Data;
+            maxBits = oppositeColour.maxBits;
+        }
+    }
+
+    public class DTMTableReversed: DTMTable
+    {
+        public DTMTableReversed(DTMTable oppositeColour): base(oppositeColour) { }
+
+        public override Move? GetMove(in Board board)
+        {
+            // makes an extra copy of the board, inefficient but not a massive overhead
+            var flippedBoard = FlipColour(new Board(board));
+            var oppositeMove = base.GetMove(flippedBoard);
+            return oppositeMove?.FlipColour();
+        }
+
+        public override int DTM(in Board board)
+        {
+            // makes an extra copy of the board, inefficient but not a massive overhead
+            var flippedBoard = FlipColour(new Board(board));
+            return base.DTM(flippedBoard);
         }
     }
 }
