@@ -77,6 +77,7 @@ namespace TidyTable.Compression
 
         // Fields reused during decoding too
 
+        // TODO: No need to enforce 64 + 256, can just read tree directly, and infer number of entries by when tree ends
         private readonly byte[] TreeEncoding = new byte[64 + 256];
         // For writing bits/bytes to output. Insert new bits at most significant end, so 'first' bit is LSB of output
         private byte Buffer = 0;

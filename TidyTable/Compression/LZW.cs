@@ -49,16 +49,26 @@ namespace TidyTable.Compression
         // TODO: Variable length codes (will need non-consts representing these values)
         private const int outputSize = 12; // output 12-bit blocks, where 0-255 are the original bits
         private const ushort outputMask = (1 << outputSize) - 1; // outputSize binary 1s, for reading in codewords
+        private const int dictionarySize = 1 << outputSize;
 
         private Stream outputStream;
         private byte[][] dictionary;
-        private int nextDictionaryIndex;
-        private List<byte> currentSequence = new();
-        private short currentMatchIndex = -1;
+        private short nextDictionaryIndex = 0;
+
+        private readonly LZWNode Tree = new(-1);
+        private LZWNode Current;
 
         // buffer is filled and output from the LSB upwards
         private int buffer = 0;
         private int bufferLength = 0;
+        int totalBytesOutput = 0;
+
+        public static int Compress(Stream input, int inputLength, Stream output) =>
+            new LZW().Encode(input, inputLength, output);
+
+        public static int Decompress(Stream input, int inputLength, Stream output) =>
+            new LZW().Decode(input, inputLength, output);
+
         private void Write(short value)
         {
             buffer |= value << bufferLength;
@@ -68,7 +78,23 @@ namespace TidyTable.Compression
                 outputStream.WriteByte((byte)buffer);
                 buffer >>= 8;
                 bufferLength -= 8;
+                totalBytesOutput++;
             }
+        }
+
+        private short Read(Stream input)
+        {
+            while (bufferLength < outputSize)
+            {
+                var b = input.ReadByte();
+                if (b < 0) throw new EndOfStreamException();
+                buffer |= b << bufferLength;
+                bufferLength += 8;
+            }
+            short output = (short)(buffer & outputMask);
+            buffer >>= outputSize;
+            bufferLength -= outputSize;
+            return output;
         }
 
         // data may not end on a bute-boundary, so the decoder must be careful to check size remaining before reading further
@@ -77,54 +103,92 @@ namespace TidyTable.Compression
             if (bufferLength > 0)
             {
                 outputStream.WriteByte((byte)buffer);
+                totalBytesOutput++;
             }
         }
 
-        public void Encode(Stream input, int inputLength, Stream output)
+        public int Encode(Stream input, int inputLength, Stream output)
         {
+            while (nextDictionaryIndex < (1 << inputSize))
+            {
+                Tree.Children.Add((byte)nextDictionaryIndex, new LZWNode(nextDictionaryIndex));
+                nextDictionaryIndex++;
+            }
+            Current = Tree;
+
+            outputStream = output;
+
+            while (inputLength-- > 0) EncodeByte(input);
+            // need to explicitly write the last sequence
+            if (Current.Index >= 0) Write(Current.Index);
+            Flush();
+            Console.WriteLine($"LZW Compression created {nextDictionaryIndex} dictionary entries out of max {dictionarySize}");
+            return totalBytesOutput;
+        }
+
+        
+
+        private void EncodeByte(Stream input)
+        {
+            int b = input.ReadByte();
+            if (b < 0) throw new EndOfStreamException();
+
+            byte value = (byte)b;
+            if (Current.Children.ContainsKey(value))
+            {
+                Current = Current.Children[value];
+
+            } else
+            {
+                Write(Current.Index);
+                if (nextDictionaryIndex < dictionarySize) Current.Children.Add(value, new LZWNode(nextDictionaryIndex++));
+                Current = Tree.Children[value];
+            }
+        }
+
+        // TODO: Assumes inputSize = bytes
+        public int Decode(Stream input, int inputLength, Stream output)
+        {
+            if (inputLength == 0) return 0;
+            // map bytes to number of symbols (rounds away any trailing bits)
+            inputLength = (inputLength * inputSize) / outputSize;
+
             dictionary = new byte[1 << outputSize][];
             for (short i = 0; i < (1 << inputSize); i++)
             {
                 dictionary[i] = new byte[] { (byte)i };
             }
             nextDictionaryIndex = 1 << inputSize;
-            outputStream = output;
 
-            for (int i = 0; i < inputLength; i++)
-            {
-                EncodeByte(input);
-            }
-            // need to explicitly write the last sequence
-            if (currentMatchIndex >= 0) Write(currentMatchIndex);
-            Flush();
-        }
+            byte b = (byte)Read(input);
+            inputLength--;
+            var lastSequence = new List<byte>() { b };
+            output.WriteByte(b);
+            int outputBytes = 1;
 
-        private void EncodeByte(Stream input)
-        {
-            int b = input.ReadByte();
-            if (b < 0) throw new EndOfStreamException();
-            currentSequence.Add((byte)b);
-            var possibleMatch = FindMatch();
-            if (possibleMatch < 0) // no match found, output code and add new sequence to dictionary
-            {
-                Write(currentMatchIndex);
-                if (nextDictionaryIndex < dictionary.Length) dictionary[nextDictionaryIndex++] = currentSequence.ToArray();
-                currentSequence = new List<byte>() { (byte)b };
-                currentMatchIndex = (short)b;
-            } else // still matching, keep scanning new symbols
-            {
-                currentMatchIndex = possibleMatch;
-            }
-        }
 
-        private short FindMatch()
-        {
-            for (short i = 0; i < dictionary.Length; i++)
+            while (inputLength-- > 0)
             {
-                if (dictionary[i] == null) return -1;
-                else if (dictionary[i].SequenceEqual(currentSequence)) return i;
+                short value = Read(input);
+                var sequence = dictionary[value];
+                if (sequence != null)
+                {
+                    output.Write(sequence, 0, sequence.Length);
+                    outputBytes += sequence.Length;
+                    lastSequence.Add(sequence[0]);
+                    if (nextDictionaryIndex < dictionary.Length) dictionary[nextDictionaryIndex++] = lastSequence.ToArray();
+                    lastSequence = sequence.ToList();
+                } else
+                {
+                    lastSequence.Add(lastSequence[0]);
+                    sequence = lastSequence.ToArray();
+                    output.Write(sequence, 0, sequence.Length);
+                    outputBytes += sequence.Length;
+                    if (nextDictionaryIndex < dictionary.Length) dictionary[nextDictionaryIndex++] = sequence;
+                }
             }
-            return -1;
+
+            return outputBytes;
         }
     }
 }
