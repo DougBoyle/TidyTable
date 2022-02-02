@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace TidyTable.Compression
 {
-    public struct LZWNode
+    public class LZWNode
     {
         // The naive implementation of LZW uing an array is slow, as it is scanned for every single byte encoded.
         // Slightly better is to use a Hash table or Tree to store the different sequences, to allow for fast lookup
@@ -34,13 +34,27 @@ namespace TidyTable.Compression
          */
 
         public readonly short Index;
-       
-        // public readonly LZWNode?[] children = new LZWNode?[256];
-        public readonly Dictionary<byte, LZWNode> Children = new();
+        public readonly byte Value;
+        public LZWNode? NextSibling = null;
+        public LZWNode? FirstChild = null;
 
-        public LZWNode(short index)
+        public LZWNode()
+        {
+            Index = -1;
+            Value = 0;
+        }
+
+        private LZWNode(short index, byte value)
         {
             Index = index;
+            Value = value;
+        }
+
+        public void AddChild(short index, byte value)
+        {
+            var previousChild = FirstChild;
+            FirstChild = new(index, value);
+            FirstChild.NextSibling = previousChild;
         }
     }
 }

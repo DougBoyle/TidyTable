@@ -55,7 +55,7 @@ namespace TidyTable.Compression
         private byte[][] dictionary;
         private short nextDictionaryIndex = 0;
 
-        private readonly LZWNode Tree = new(-1);
+        private readonly LZWNode Tree = new();
         private LZWNode Current;
 
         // buffer is filled and output from the LSB upwards
@@ -111,7 +111,7 @@ namespace TidyTable.Compression
         {
             while (nextDictionaryIndex < (1 << inputSize))
             {
-                Tree.Children.Add((byte)nextDictionaryIndex, new LZWNode(nextDictionaryIndex));
+                Tree.AddChild(nextDictionaryIndex, (byte)nextDictionaryIndex);
                 nextDictionaryIndex++;
             }
             Current = Tree;
@@ -134,16 +134,26 @@ namespace TidyTable.Compression
             if (b < 0) throw new EndOfStreamException();
 
             byte value = (byte)b;
-            if (Current.Children.ContainsKey(value))
-            {
-                Current = Current.Children[value];
-
-            } else
+            var nextNode = FindChild(value);
+            if (nextNode != null)  Current = nextNode;
+            else
             {
                 Write(Current.Index);
-                if (nextDictionaryIndex < dictionarySize) Current.Children.Add(value, new LZWNode(nextDictionaryIndex++));
-                Current = Tree.Children[value];
+                if (nextDictionaryIndex < dictionarySize) Current.AddChild(nextDictionaryIndex++, value);
+                Current = Tree;
+                Current = FindChild(value)!;
             }
+        }
+
+        private LZWNode? FindChild(byte value)
+        {
+            var child = Current.FirstChild;
+            while (child != null)
+            {
+                if (child.Value == value) return child;
+                else child = child.NextSibling;
+            }
+            return null;
         }
 
         // TODO: Assumes inputSize = bytes
