@@ -109,13 +109,11 @@ namespace TidyTable.Compression
 
         public int Encode(Stream input, int inputLength, Stream output)
         {
-            while (nextDictionaryIndex < (1 << inputSize))
-            {
-                Tree.AddChild(nextDictionaryIndex, (byte)nextDictionaryIndex);
-                nextDictionaryIndex++;
-            }
             Current = Tree;
-
+            for (int i = 0; i < (1 << inputSize); i++)
+            {
+                FindChildOrAdd((byte)i);
+            }
             outputStream = output;
 
             while (inputLength-- > 0) EncodeByte(input);
@@ -134,26 +132,46 @@ namespace TidyTable.Compression
             if (b < 0) throw new EndOfStreamException();
 
             byte value = (byte)b;
-            var nextNode = FindChild(value);
+            var nextNode = FindChildOrAdd(value);
             if (nextNode != null)  Current = nextNode;
             else
             {
                 Write(Current.Index);
-                if (nextDictionaryIndex < dictionarySize) Current.AddChild(nextDictionaryIndex++, value);
                 Current = Tree;
-                Current = FindChild(value)!;
+                Current = FindChildOrAdd(value)!;
             }
         }
 
-        private LZWNode? FindChild(byte value)
+        private LZWNode? FindChildOrAdd(byte value)
         {
-            var child = Current.FirstChild;
-            while (child != null)
+            if (Current.RootChild == null)
             {
-                if (child.Value == value) return child;
-                else child = child.NextSibling;
+                if (nextDictionaryIndex < dictionarySize) Current.AddChild(nextDictionaryIndex++, value);
+                return null;
             }
-            return null;
+
+            var node = Current.RootChild;
+            while (node.Value != value)
+            {
+                if (value > node.Value)
+                {
+                    if (node.RightSibling != null) node = node.RightSibling;
+                    else
+                    {
+                        if (nextDictionaryIndex < dictionarySize) node.AddRight(nextDictionaryIndex++, value);
+                        return null;
+                    }
+                } else
+                {
+                    if (node.LeftSibling != null) node = node.LeftSibling;
+                    else
+                    {
+                        if (nextDictionaryIndex < dictionarySize) node.AddLeft(nextDictionaryIndex++, value);
+                        return null;
+                    }
+                }
+            }
+            return node;
         }
 
         // TODO: Assumes inputSize = bytes

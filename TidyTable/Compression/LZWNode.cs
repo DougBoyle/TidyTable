@@ -35,8 +35,9 @@ namespace TidyTable.Compression
 
         public readonly short Index;
         public readonly byte Value;
-        public LZWNode? NextSibling = null;
-        public LZWNode? FirstChild = null;
+        public LZWNode? LeftSibling = null;
+        public LZWNode? RightSibling = null;
+        public LZWNode? RootChild = null;
 
         public LZWNode()
         {
@@ -50,11 +51,19 @@ namespace TidyTable.Compression
             Value = value;
         }
 
+        public void AddLeft(short index, byte value)
+        {
+            LeftSibling = new(index, value);
+        }
+
+        public void AddRight(short index, byte value)
+        {
+            RightSibling = new(index, value);
+        }
+
         public void AddChild(short index, byte value)
         {
-            var previousChild = FirstChild;
-            FirstChild = new(index, value);
-            FirstChild.NextSibling = previousChild;
+            RootChild = new(index, value);
         }
     }
 }
