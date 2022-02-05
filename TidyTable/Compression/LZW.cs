@@ -51,7 +51,7 @@ namespace TidyTable.Compression
         private const ushort outputMask = (1 << outputSize) - 1; // outputSize binary 1s, for reading in codewords
         private const int dictionarySize = 1 << outputSize;
 
-        private Stream outputStream;
+        private TwelveBitStream outputStream;
         private byte[][] dictionary;
         private short nextDictionaryIndex = 0;
 
@@ -63,24 +63,11 @@ namespace TidyTable.Compression
         private int bufferLength = 0;
         int totalBytesOutput = 0;
 
-        public static int Compress(Stream input, int inputLength, Stream output) =>
+        public static int Compress(Stream input, int inputLength, TwelveBitStream output) =>
             new LZW().Encode(input, inputLength, output);
 
         public static int Decompress(Stream input, int inputLength, Stream output) =>
             new LZW().Decode(input, inputLength, output);
-
-        private void Write(short value)
-        {
-            buffer |= value << bufferLength;
-            bufferLength += outputSize;
-            while (bufferLength >= 8)
-            {
-                outputStream.WriteByte((byte)buffer);
-                buffer >>= 8;
-                bufferLength -= 8;
-                totalBytesOutput++;
-            }
-        }
 
         private short Read(Stream input)
         {
@@ -97,18 +84,8 @@ namespace TidyTable.Compression
             return output;
         }
 
-        // data may not end on a bute-boundary, so the decoder must be careful to check size remaining before reading further
-        private void Flush()
-        {
-            if (bufferLength > 0)
-            {
-                outputStream.WriteByte((byte)buffer);
-                totalBytesOutput++;
-            }
-        }
-
         // Regardless of the input size, assumes symbols are 1 per byte
-        public int Encode(Stream input, int inputLength, Stream output)
+        public int Encode(Stream input, int inputLength, TwelveBitStream output)
         {
             Current = Tree;
             for (int i = 0; i < (1 << inputSize); i++)
@@ -119,8 +96,7 @@ namespace TidyTable.Compression
 
             while (inputLength-- > 0) EncodeByte(input);
             // need to explicitly write the last sequence
-            if (Current.Index >= 0) Write(Current.Index);
-            Flush();
+            if (Current.Index >= 0) outputStream.Write(Current.Index);
             Console.WriteLine($"LZW Compression created {nextDictionaryIndex} dictionary entries out of max {dictionarySize}");
             return totalBytesOutput;
         }
@@ -137,7 +113,7 @@ namespace TidyTable.Compression
             if (nextNode != null)  Current = nextNode;
             else
             {
-                Write(Current.Index);
+                outputStream.Write(Current.Index);
                 Current = Tree;
                 Current = FindChildOrAdd(value)!;
             }

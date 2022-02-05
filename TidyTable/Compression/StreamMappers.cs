@@ -6,9 +6,103 @@ using System.Threading.Tasks;
 
 namespace TidyTable.Compression
 {
-    public interface TwelveBitStream
+    // TODO: For all methods, using the same underlying stream requires seeking to read/write position!
+    public interface ITwelveBitStream
     {
         void Write(short value);
+    }
+
+    // Read/Write carry on from the same positions and don't interfere, but cannot seek as a result
+    public class DualStream: Stream
+    {
+        private long ReadPosition = 0;
+        private long WritePosition = 0;
+        private readonly Stream stream;
+
+        public DualStream()
+        {
+            stream = new MemoryStream();
+        }
+
+        public DualStream(Stream stream)
+        {
+            this.stream = stream;
+        }
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => true;
+
+        public override long Length => WritePosition;
+
+        public override long Position { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+
+        public void Write(short value)
+        {
+            stream.Seek(WritePosition, SeekOrigin.Begin);
+            stream.WriteByte((byte)value);
+            WritePosition += 2;
+        }
+
+        public override void Flush() {
+            stream.Seek(WritePosition, SeekOrigin.Begin);
+            stream.Flush();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            stream.Seek(ReadPosition, SeekOrigin.Begin);
+            var bytesAvailable = (int)Math.Min(count, WritePosition - ReadPosition);
+            var bytesRead = stream.Read(buffer, offset, bytesAvailable);
+            ReadPosition += bytesRead;
+            return bytesRead;
+        }
+
+        public override int ReadByte()
+        {
+            stream.Seek(ReadPosition, SeekOrigin.Begin);
+            if (ReadPosition >= WritePosition) return -1;
+            
+            var value = stream.ReadByte();
+            if (value >= 0) ReadPosition++;
+            return value;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            throw new NotImplementedException();
+        }
+
+        public override void SetLength(long value)
+        {
+            throw new NotImplementedException();
+        }
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            stream.Seek(WritePosition, SeekOrigin.Begin);
+            stream.Write(buffer, offset, count);
+            WritePosition += count;
+        }
+
+        public override void WriteByte(byte value)
+        {
+            stream.Seek(WritePosition++, SeekOrigin.Begin);
+            stream.WriteByte(value);
+        }
+
+        public byte[] ToArray()
+        {
+            if (stream is MemoryStream memoryStream)
+            {
+                return memoryStream.ToArray();
+            } else
+            {
+                throw new NotImplementedException();
+            }
+        }
     }
 
     public abstract class ReadOnlyStream : Stream
@@ -33,9 +127,9 @@ namespace TidyTable.Compression
     }
 
     // TODO: Also the reverse
-    public class TwelveBitsToByteStream : ReadOnlyStream, TwelveBitStream
+    public class TwelveBitsToByteStream : ReadOnlyStream, ITwelveBitStream
     {
-        private readonly Stream stream = new MemoryStream();
+        private readonly DualStream stream = new();
 
         private int buffer = 0;
         private int bufferLength = 0;
@@ -162,6 +256,37 @@ namespace TidyTable.Compression
                 buffer[position++] = (byte)value;
             }
             return position - offset;
+        }
+    }
+
+    // Wraps twelve-bit values as 2 bytes each (assuming top bits of each value are 0 anyway, effectively just a short stream)
+    public class TwelveBitStream: ITwelveBitStream
+    {
+        private readonly DualStream stream = new();
+
+        public void Write(short value)
+        {
+            stream.WriteByte((byte)value);
+            stream.WriteByte((byte)(value >> 8));
+        }
+
+        public short Read()
+        {
+            var b1 = stream.ReadByte();
+            var b2 = stream.ReadByte();
+            if (b1 < 0 || b2 < 0) return -1;
+            return (short)((b2 << 8) | b1);
+        }
+
+        public short[] ToArray()
+        {
+            var byteArray = stream.ToArray();
+            var result = new short[byteArray.Length/2];
+            for (int i = 0; i < result.Length; i++)
+            {
+                result[i] = (short)(byteArray[2 * i] | (byteArray[2 * i + 1] << 8));
+            }
+            return result;
         }
     }
 }
