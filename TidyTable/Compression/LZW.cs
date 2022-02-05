@@ -107,6 +107,7 @@ namespace TidyTable.Compression
             }
         }
 
+        // Regardless of the input size, assumes symbols are 1 per byte
         public int Encode(Stream input, int inputLength, Stream output)
         {
             Current = Tree;
@@ -174,7 +175,7 @@ namespace TidyTable.Compression
             return node;
         }
 
-        // TODO: Assumes inputSize = bytes
+        // Regardless of symbol length, writes them to 1-byte boundaries
         public int Decode(Stream input, int inputLength, Stream output)
         {
             if (inputLength == 0) return 0;
