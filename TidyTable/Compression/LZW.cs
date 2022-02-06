@@ -215,23 +215,41 @@ namespace TidyTable.Compression
 
         private byte[] buffer = Array.Empty<byte>();
         private int bufferPosition;
-        private List<byte> lastSequence;
+        private List<byte> lastSequence = null!;
+        private long currentPosition;
 
         public LZWStream(Huffman12Reader huffmanReader, int maxBits = 8)
         {
             this.huffmanReader = huffmanReader;
             lzw = new(maxBits);
             lzw.InitialiseDictionary();
+            
+            Initialise();
+        }
 
-            // must read the first byte specially, as no previous sequence
+        // must read the first byte specially, as no previous sequence
+        private void Initialise()
+        {
             var firstSymbol = (byte)huffmanReader.ReadSymbol();
             buffer = new byte[1] { firstSymbol };
+            bufferPosition = 0;
+            currentPosition = 0;
             lastSequence = buffer.ToList();
+        }
+
+        private void Reset()
+        {
+            huffmanReader.Reset();
+            Initialise();
         }
 
         public override int ReadByte()
         {
-            if (bufferPosition < buffer.Length) return buffer[bufferPosition++];
+            if (bufferPosition < buffer.Length)
+            {
+                currentPosition++;
+                return buffer[bufferPosition++];
+            }
 
             short value = huffmanReader.ReadSymbol();
             var sequence = lzw.dictionary[value];
@@ -267,6 +285,7 @@ namespace TidyTable.Compression
                 bytesRead = Math.Min(count, this.buffer.Length - bufferPosition);
                 Array.Copy(this.buffer, bufferPosition, buffer, offset, bytesRead);
                 bufferPosition += bytesRead;
+                currentPosition += bytesRead;
             }
 
             if (bytesRead < count)
@@ -278,6 +297,42 @@ namespace TidyTable.Compression
             }
 
             return bytesRead + Read(buffer, offset + bytesRead, count - bytesRead);
+        }
+
+        public override bool CanSeek => true;
+
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            if (offset < 0) throw new NotSupportedException();
+            if (offset == 0) return currentPosition;
+            switch (origin)
+            {
+                case SeekOrigin.Begin:
+                    Reset();
+                    break;
+                case SeekOrigin.Current:
+                    break;
+                case SeekOrigin.End:
+                    throw new NotSupportedException();
+            }
+
+            int bytesSkipped = 0;
+            // similar to Read, but without an output array
+            if (bufferPosition < buffer.Length)
+            {
+                bytesSkipped = (int)Math.Min(offset, buffer.Length - bufferPosition);
+                bufferPosition += bytesSkipped;
+                currentPosition += bytesSkipped;
+            }
+
+            if (bytesSkipped < offset)
+            {
+                var value = ReadByte();
+                if (value < 0) throw new EndOfStreamException();
+                bytesSkipped++;
+            }
+
+            return Seek(offset - bytesSkipped, SeekOrigin.Current);
         }
     }
 }
