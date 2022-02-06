@@ -17,21 +17,16 @@ if (args.Length >= 2)
 }
 */
 
-var filename = "tables/automated/KR-KN.dtm";
-//var filename = "hello.txt";
-var input = new FileStream(filename, FileMode.Open);
-var output = new FileStream(filename + ".lzw", FileMode.Create);
-LZW.Compress(input, (int)input.Length, output);
-input.Close();
-output.Close();
-Console.WriteLine("Compressed");
+LZWHuffman.Test();
 
+/*
 input = new FileStream(filename + ".lzw", FileMode.Open);
 var checkfile = new FileStream(filename + ".check", FileMode.Create);
 LZW.Decompress(input, (int)input.Length, checkfile);
 input.Close();
 checkfile.Close();
 Console.WriteLine("Decompressed");
+*/
 
 /*
 var watch = new System.Diagnostics.Stopwatch();

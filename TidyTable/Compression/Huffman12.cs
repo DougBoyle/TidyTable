@@ -46,8 +46,11 @@ namespace TidyTable.Compression
         private Huffman12Node BuildHuffmanTree(BinaryReader input, int inputLength)
         {
             for (int i = 0; i < inputLength; i++) frequencyTable[input.ReadInt16()]++;
+            // reest the input position, ready for encoding later
+            input.BaseStream.Seek(0, SeekOrigin.Begin);
             List<Huffman12Node> forest = frequencyTable.Select((count, n) => new Huffman12Node(count, (short)n, null, null))
                 .Where(node => node.Frequency > 0).ToList();
+
             while (forest.Count > 1)
             {
                 var node1 = forest.MinBy(node => node.Frequency)!;
@@ -80,11 +83,6 @@ namespace TidyTable.Compression
             foreach (var value in TreeValues) WriteSymbol(value);
             FlushBuffer();
         }
-
-        
-        private int TreeIndex = 0;
-        private int LeafCount = 0; // int to allow looping 0 <= LeafCount < 256
-
 
         // ---------------------------------------- Writing Bits ------------------------------------------------------------
 
@@ -187,7 +185,7 @@ namespace TidyTable.Compression
             {
                 if (branch.Value != null)
                 {
-                    byte value = (byte)branch.Value;
+                    short value = (short)branch.Value;
                     WriteLeaf(value);
                     mappings[value] = currentMapping;
                 } else
@@ -356,6 +354,8 @@ namespace TidyTable.Compression
 
         private readonly Huffman12Node Root;
 
+        public long Length => dataLength;
+
         public Huffman12Reader(BinaryReader reader)
         {
             // output stream won't actually be used
@@ -371,7 +371,7 @@ namespace TidyTable.Compression
 
         public short ReadSymbol()
         {
-            if (symbolsRead++ < dataLength) throw new EndOfStreamException();
+            if (symbolsRead++ >= dataLength) throw new EndOfStreamException();
             return processor.ReadSymbol(Root);
         }
 

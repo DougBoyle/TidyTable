@@ -44,16 +44,15 @@ namespace TidyTable.Compression
     // Note: Various assumptions in code about input/output size e.g. input is bytes, output < 16 bits
     public class LZW
     {
-        private const bool VARIABLE_CODE = false;
-        private const int inputSize = 8; // read in bytes
+        public int inputSize = 8; // read in bytes
         // TODO: Variable length codes (will need non-consts representing these values)
-        private const int outputSize = 12; // output 12-bit blocks, where 0-255 are the original bits
+        public const int outputSize = 12; // output 12-bit blocks, where 0-255 are the original bits
         private const ushort outputMask = (1 << outputSize) - 1; // outputSize binary 1s, for reading in codewords
         private const int dictionarySize = 1 << outputSize;
 
         private TwelveBitStream outputStream;
-        private byte[][] dictionary;
-        private short nextDictionaryIndex = 0;
+        public byte[][] dictionary;
+        public short nextDictionaryIndex = 0;
 
         private readonly LZWNode Tree = new();
         private LZWNode Current;
@@ -63,11 +62,16 @@ namespace TidyTable.Compression
         private int bufferLength = 0;
         int totalBytesOutput = 0;
 
-        public static int Compress(Stream input, int inputLength, TwelveBitStream output) =>
-            new LZW().Encode(input, inputLength, output);
+        public LZW(int inputSize)
+        {
+            this.inputSize = inputSize;
+        }
 
-        public static int Decompress(Stream input, int inputLength, Stream output) =>
-            new LZW().Decode(input, inputLength, output);
+        public static int Compress(Stream input, int inputLength, TwelveBitStream output, int maxBits = 8) =>
+            new LZW(maxBits).Encode(input, inputLength, output);
+
+        public static int Decompress(Stream input, int inputLength, Stream output, int maxBits = 8) =>
+            new LZW(maxBits).Decode(input, inputLength, output);
 
         private short Read(Stream input)
         {
@@ -158,12 +162,7 @@ namespace TidyTable.Compression
             // map bytes to number of symbols (rounds away any trailing bits)
             inputLength = (inputLength * inputSize) / outputSize;
 
-            dictionary = new byte[1 << outputSize][];
-            for (short i = 0; i < (1 << inputSize); i++)
-            {
-                dictionary[i] = new byte[] { (byte)i };
-            }
-            nextDictionaryIndex = 1 << inputSize;
+            InitialiseDictionary();
 
             byte b = (byte)Read(input);
             inputLength--;
@@ -194,6 +193,91 @@ namespace TidyTable.Compression
             }
 
             return outputBytes;
+        }
+
+        public void InitialiseDictionary()
+        {
+            dictionary = new byte[1 << outputSize][];
+            for (short i = 0; i < (1 << inputSize); i++)
+            {
+                dictionary[i] = new byte[] { (byte)i };
+            }
+            nextDictionaryIndex = (short)(1 << inputSize);
+        }
+    }
+
+    // As above, but reads from a Huffman12Reader (that provides 12-bit values at a time as shorts), and can decode incrementally
+    // Due to decoding incrementally, does not check bounds on reads
+    public class LZWStream: ReadOnlyStream
+    {
+        private readonly LZW lzw;
+        private readonly Huffman12Reader huffmanReader;
+
+        private byte[] buffer = Array.Empty<byte>();
+        private int bufferPosition;
+        private List<byte> lastSequence;
+
+        public LZWStream(Huffman12Reader huffmanReader, int maxBits = 8)
+        {
+            this.huffmanReader = huffmanReader;
+            lzw = new(maxBits);
+            lzw.InitialiseDictionary();
+
+            // must read the first byte specially, as no previous sequence
+            var firstSymbol = (byte)huffmanReader.ReadSymbol();
+            buffer = new byte[1] { firstSymbol };
+            lastSequence = buffer.ToList();
+        }
+
+        public override int ReadByte()
+        {
+            if (bufferPosition < buffer.Length) return buffer[bufferPosition++];
+
+            short value = huffmanReader.ReadSymbol();
+            var sequence = lzw.dictionary[value];
+            if (sequence != null)
+            {
+                SetBuffer(sequence);
+                lastSequence.Add(sequence[0]);
+                if (lzw.nextDictionaryIndex < lzw.dictionary.Length) lzw.dictionary[lzw.nextDictionaryIndex++] = lastSequence.ToArray();
+                lastSequence = sequence.ToList();
+            }
+            else
+            {
+                lastSequence.Add(lastSequence[0]);
+                sequence = lastSequence.ToArray();
+                SetBuffer(sequence);
+                if (lzw.nextDictionaryIndex < lzw.dictionary.Length) lzw.dictionary[lzw.nextDictionaryIndex++] = sequence;
+            }
+            return ReadByte();
+        }
+
+        private void SetBuffer(byte[] sequence)
+        {
+            buffer = sequence;
+            bufferPosition = 0;
+
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            int bytesRead = 0;
+            if (bufferPosition < this.buffer.Length)
+            {
+                bytesRead = Math.Min(count, this.buffer.Length - bufferPosition);
+                Array.Copy(this.buffer, bufferPosition, buffer, offset, bytesRead);
+                bufferPosition += bytesRead;
+            }
+
+            if (bytesRead < count)
+            {
+                var value = ReadByte();
+                if (value < 0) return value;
+                buffer[offset] = (byte)value;
+                bytesRead++;
+            }
+
+            return bytesRead + Read(buffer, offset + bytesRead, count - bytesRead);
         }
     }
 }

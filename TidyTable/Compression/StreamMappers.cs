@@ -19,7 +19,7 @@ namespace TidyTable.Compression
     {
         private long ReadPosition = 0;
         private long WritePosition = 0;
-        private readonly Stream stream;
+        public readonly Stream stream;
 
         public DualStream()
         {
@@ -119,7 +119,7 @@ namespace TidyTable.Compression
 
         public override long Position { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
 
-        public override void Flush() => throw new NotImplementedException();
+        public override void Flush() { }
 
         public override long Seek(long offset, SeekOrigin origin) => throw new NotImplementedException();
 
@@ -264,7 +264,7 @@ namespace TidyTable.Compression
     // Wraps twelve-bit values as 2 bytes each (assuming top bits of each value are 0 anyway, effectively just a short stream)
     public class TwelveBitStream: ITwelveBitStream
     {
-        private readonly DualStream stream = new();
+        public readonly DualStream stream = new();
 
         public void Write(short value)
         {
