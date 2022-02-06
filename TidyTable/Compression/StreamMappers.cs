@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 
 namespace TidyTable.Compression
 {
+    // TODO: !!! Can just use BinaryWriter/Reader for reading/writing shorts (and treating as 12-bit values)
+    //           But need to somehow indicate the length of the stream
     // TODO: For all methods, using the same underlying stream requires seeking to read/write position!
     public interface ITwelveBitStream
     {
