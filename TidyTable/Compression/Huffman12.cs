@@ -1,37 +1,47 @@
-﻿namespace TidyTable.Compression
+﻿using static TidyTable.Compression.Huffman12;
+
+namespace TidyTable.Compression
 {
     // Same as th regular Huffman coding program, but for 12-bit values represented as shorts (i.e. 2-byte boundaries)
 
     /*
      * Format:
-     *   <bits in last byte> | <tree structure length - 2 bytes> | tree structure | tree values | encoding
+     *  <num codewords (4 bytes)> | tree structure | tree values | encoding
      * 
-     * 
+     *  Size of tree not stored, simply read the whole structure, then populate the values
+     *    (Means traversing the tree twice, but should have negligible impact for ~8k nodes vs IO cost)
+     *  Number of codewords is stored, to avoid needing an end marker (or number of bits in last byte)
      */
     public class Huffman12
     {
+        private const int symbolLength = 12;
+        private const int numSymbols = 1 << symbolLength;
+        private const ulong symbolMask = (1 << symbolLength) - 1;
+
+
+        private BinaryReader input;
         private BinaryWriter output;
 
-        private Huffman12(BinaryWriter output)
+        public Huffman12(BinaryReader input, BinaryWriter output)
         {
+            this.input = input;
             this.output = output;
         }
 
+        // inputLength is the number of 12-bit values, or half the length of the input stream
         public static long Compress(BinaryReader input, BinaryWriter output, int inputLength)
         {
-            var huffman = new Huffman12(output);
+            output.Write(inputLength);
+            var huffman = new Huffman12(input, output);
             var tree = huffman.BuildHuffmanTree(input, inputLength);
             var mapping = huffman.TreeToMapping(tree);
 
             huffman.EncodeBytes(mapping, input, inputLength);
 
-
-            output.Seek(0, SeekOrigin.End);
-
             return output.BaseStream.Length;
         }
 
-        private readonly int[] frequencyTable = new int[4096];
+        private readonly int[] frequencyTable = new int[numSymbols];
 
         private Huffman12Node BuildHuffmanTree(BinaryReader input, int inputLength)
         {
@@ -69,10 +79,6 @@
 
             foreach (var value in TreeValues) WriteSymbol(value);
             FlushBuffer();
-
-            output.Seek(1, SeekOrigin.Begin);
-            output.Write((short)((TreeTraversal.Count + 7) / 8 + (TreeValues.Count * 3 + 1) / 2));
-            output.Seek(0, SeekOrigin.End);
         }
 
         
@@ -116,7 +122,7 @@
         {
             if (++BitBufferLength == 8)
             {
-                output.Write((byte)BitBuffer);
+                output.Write(BitBuffer);
                 BitBuffer = 0;
                 BitBufferLength = 0;
             }
@@ -129,7 +135,7 @@
         private void WriteSymbol(short symbol)
         {
             Buffer |= (ulong)symbol << BufferLength;
-            BufferLength += 12;
+            BufferLength += symbolLength;
 
             while (BufferLength >= 8)
             {
@@ -175,7 +181,7 @@
         // Root of tree corresponds to LSB of nodes, to avoid corresponding to a variable bit position on decoding
         private Mapping[] TreeToMapping(Huffman12Node tree)
         {
-            Mapping[] mappings = new Mapping[4096];
+            Mapping[] mappings = new Mapping[numSymbols];
 
             void MapPath(Mapping currentMapping, Huffman12Node branch)
             {
@@ -213,119 +219,102 @@
         private void EncodeBytes(Mapping[] mapping, BinaryReader input, int inputLength)
         {
             for (int i = 0; i < inputLength; i++) WriteCodeword(mapping[input.ReadInt16()]);
-            var bitsInLastByte = FlushBuffer();
-            output.Seek(0, SeekOrigin.Begin);
-            output.Write(bitsInLastByte);
+            FlushBuffer();
         }
 
         /* --------------------------------- Decoding ---------------------------------------- */
+        // First build tree with all leaves empty, then populate leaves
         // Only used for decoding initial tree structure
-        private bool ReadBit(byte[] input, ref int index)
+        private bool ReadBit()
         {
-            if (BufferLength == 0)
+            if (BitBufferLength == 0)
             {
-                BufferLength = 8;
-                Buffer = input[index++];
+                BitBufferLength = 8;
+                BitBuffer = input.ReadByte();
             }
-            BufferLength--;
-            bool isLeaf = (Buffer & 1) == 1;
-            Buffer >>= 1;
+            BitBufferLength--;
+            bool isLeaf = (BitBuffer & 1) == 1;
+            BitBuffer >>= 1;
             return isLeaf;
         }
 
-        private void BytesToTree(HuffmanNode currentNode)
+        private short ReadSymbol()
         {
-            bool isLeaf = ReadBit(TreeEncoding, ref TreeIndex);
+            while (BufferLength < symbolLength)
+            {
+                Buffer |= (ulong)(input.ReadByte()) << BufferLength;
+                BufferLength += 8;
+            }
+            BufferLength -= symbolLength;
+            short value = (short)(Buffer & symbolMask);
+            Buffer >>= symbolLength;
+            return value;
+        }
+
+        private void ResetBitBuffer()
+        {
+            BitBuffer = 0;
+            BitBufferLength = 0;
+        }
+
+        private void BytesToTree(Huffman12Node currentNode)
+        {
+            bool isLeaf = ReadBit();
             if (isLeaf)
             {
-                currentNode.Value = TreeEncoding[64 + LeafCount++];
+                currentNode.Value = 0; // To be filled in later
             } else
             {
-                HuffmanNode left = new(0, null, null, null);
+                Huffman12Node left = new(0, null, null, null);
                 BytesToTree(left);
-                HuffmanNode right = new(0, null, null, null);
+                Huffman12Node right = new(0, null, null, null);
                 BytesToTree(right);
                 currentNode.Left = left;
                 currentNode.Right = right;
             }
         }
 
-        // TODO: This could reuse the same local variables that writing used
-        private byte[] Input = Array.Empty<byte>();
-        private int InputIndex = 0;
-
-        public static int Decompress(byte[] input, byte[] output, int size)
+        private void PopulateTree(Huffman12Node currentNode)
         {
-            return new Huffman12().Decode(input, output, size);
-        }
-
-        // TODO: Must handle possible write exception when calling this with an array-backed output
-        public static int Decompress(byte[] input, BinaryWriter output, int size)
-        {
-
-            return new Huffman12().Decode(input, output, size);
-        }
-        private int Decode(byte[] input, byte[] output, int inputLength)
-        {
-            if (inputLength <= TreeEncoding.Length)
-                throw new ArgumentOutOfRangeException("Input length too short to hold more than just compression dictionary");
-            // Read tree encoding
-            HuffmanNode root = new(0, null, null, null);
-            Array.Copy(input, TreeEncoding, TreeEncoding.Length);
-            BytesToTree(root);
-
-            // Read number of bits of last byte
-            Input = input;
-            InputIndex = TreeEncoding.Length;
-            byte bitsInLastByte = Input[InputIndex++];
-
-            // Reset buffer
-            Buffer = 0;
-            BufferLength = 0;
-            int outputIndex = 0;
-            // Extra test ensures that the correct number of bits are read from the last byte
-            while (InputIndex < inputLength || 8-BufferLength < bitsInLastByte)
+            if (currentNode.Value != null)
             {
-                byte b = ReadSymbol(root);
-                if (outputIndex >= output.Length) return 0;
-                output[outputIndex++] = b;
-            }
-            return outputIndex;
-        }
-
-        private int Decode(byte[] input, BinaryWriter output, int inputLength)
-        {
-
-            if (inputLength <= TreeEncoding.Length)
-                throw new ArgumentOutOfRangeException("Input length too short to hold more than just compression dictionary");
-            // Read tree encoding
-            HuffmanNode root = new(0, null, null, null);
-            Array.Copy(input, TreeEncoding, TreeEncoding.Length);
-            BytesToTree(root);
-
-            // Read number of bits of last byte
-            Input = input;
-            InputIndex = TreeEncoding.Length;
-            byte bitsInLastByte = Input[InputIndex++];
-
-            // Reset buffer
-            Buffer = 0;
-            BufferLength = 0;
-            int outputLength = 0;
-            // Extra test ensures that the correct number of bits are read from the last byte
-            while (InputIndex < inputLength || 8 - BufferLength < bitsInLastByte)
+                currentNode.Value = ReadSymbol();
+            } else
             {
-                byte b = ReadSymbol(root);
-                output.Write(b);
-                outputLength++;
+                if (currentNode.Left != null) PopulateTree(currentNode.Left);
+                if (currentNode.Right != null) PopulateTree(currentNode.Right);
             }
-            return outputLength;
         }
 
-        private byte ReadSymbol(HuffmanNode node)
+        public static int Decompress(BinaryReader input, BinaryWriter output)
         {
-            while (node.Value == null) node = ReadBit(Input, ref InputIndex) ? node.Right! : node.Left!;
-            return (byte)node.Value;
+            return new Huffman12(input, output).Decode();
+        }
+
+        private int Decode()
+        {
+            int numCodewords = input.ReadInt32();
+
+            // Read tree encoding
+            Huffman12Node root = new(0, null, null, null);
+            SetUpDecoding(root);
+
+            // Extra test ensures that the correct number of bits are read from the last byte
+            for (int i = 0; i < numCodewords; i++) output.Write(ReadSymbol(root));
+            return numCodewords;
+        }
+
+        public void SetUpDecoding(Huffman12Node root)
+        {
+            BytesToTree(root);
+            PopulateTree(root);
+            ResetBitBuffer(); // Could pack together, but wastes at most 1 byte here for nice layout
+        }
+
+        public short ReadSymbol(Huffman12Node node)
+        {
+            while (node.Value == null) node = ReadBit() ? node.Right! : node.Left!;
+            return (short)node.Value;
         }
 
 
@@ -353,108 +342,51 @@
         }
     }
 
+    // For only decoding up to the point needed, then discarding
     public class Huffman12Reader
     {
-        private Stream Stream;
+        // does all the actual work
+        private readonly Huffman12 processor;
+        private readonly BinaryReader reader;
+        
+        // Allows re-reading multiple times without decoding Huffman tree again
+        private readonly long startOfData;
+        private readonly long dataLength;
+        private long symbolsRead = 0;
 
-        private readonly byte[] IndexMapping = new byte[256];
-        private readonly HuffmanNode Root;
-        // For writing bits/bytes to output. Insert new bits at most significant end, so 'first' bit is LSB of output
-        private byte Buffer = 0;
-        private int BufferLength = 0; // index from LSB where next bit will be written
-        private int LeafCount = 0;
+        private readonly Huffman12Node Root;
 
-        private int bitsInLastByte;
-
-        public Huffman12Reader(Stream stream)
+        public Huffman12Reader(BinaryReader reader)
         {
-            Stream = stream;
-            // TODO: Tidy up order of fields
-            stream.Seek(64, SeekOrigin.Begin);
-            stream.Read(IndexMapping, 0, 256);
-            stream.Seek(0, SeekOrigin.Begin);
+            // output stream won't actually be used
+            this.reader = reader;
+            processor = new Huffman12(reader, new BinaryWriter(new MemoryStream()));
+            dataLength = reader.ReadInt32();
 
-            // Read tree encoding
             Root = new(0, null, null, null);
-            BytesToTree(Root);
-            stream.Seek(64 + 256, SeekOrigin.Begin); // seek to end of header containing encoding
+            processor.SetUpDecoding(Root);
 
-            // Read number of bits of last byte
-            // Could be used to detect when end of stream is, but currently just rely on correct use by caller
-            // (since this is only used to lookup a specific index, not process the whole table)
-            bitsInLastByte = stream.ReadByte();
-
-            // Reset buffer
-            Buffer = 0;
-            BufferLength = 0;
+            startOfData = reader.BaseStream.Position;
         }
 
-        public byte ReadByte()
+        public short ReadSymbol()
         {
-            return ReadSymbol(Root);
-        }
-
-        public ushort ReadUShort()
-        {
-            ushort result = ReadSymbol(Root);
-            result <<= 8;
-            result |= ReadSymbol(Root);
-            return result;
+            if (symbolsRead++ < dataLength) throw new EndOfStreamException();
+            return processor.ReadSymbol(Root);
         }
 
         public void Seek(uint offset)
         {
             while (offset-- > 0)
             {
-                ReadByte();
+                ReadSymbol();
             }
         }
 
-        private void BytesToTree(Huffman12Node currentNode)
+        public void Reset()
         {
-            bool isLeaf = ReadBit();
-            if (isLeaf)
-            {
-                currentNode.Value = IndexMapping[LeafCount++];
-            }
-            else
-            {
-                Huffman12Node left = new(0, null, null, null);
-                BytesToTree(left);
-                Huffman12Node right = new(0, null, null, null);
-                BytesToTree(right);
-                currentNode.Left = left;
-                currentNode.Right = right;
-            }
-        }
-        private byte ReadSymbol(Huffman12Node node)
-        {
-            while (node.Value == null) node = ReadBit() ? node.Right! : node.Left!;
-            return (byte)node.Value;
-        }
-
-        private bool ReadBit()
-        {
-            if (BufferLength == 0)
-            {
-                BufferLength = 8;
-                Buffer = (byte)Stream.ReadByte();
-            }
-            BufferLength--;
-            bool isLeaf = (Buffer & 1) == 1;
-            Buffer >>= 1;
-            return isLeaf;
-        }
-
-        public static short ReadInt12(BinaryReader reader)
-        {
-            try
-            {
-                return reader.ReadInt16();
-            } catch (Exception)
-            {
-                return -1; // End of stream, and Int12 is never -1 when represented as shorts
-            }
+            reader.BaseStream.Seek(startOfData, SeekOrigin.Begin);
+            symbolsRead = 0;
         }
     }
 }
