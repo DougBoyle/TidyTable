@@ -9,23 +9,23 @@ using System.Threading.Tasks;
 using TidyTable.TableFormats;
 using TidyTable.Endgames;
 using static Chessington.GameEngine.AI.Endgame.NormalForm;
+using TidyTable.Compression;
 
 namespace TidyTable.Tables
 {
-    // TODO: Do this for DTZ instead?
-    public class DTMTable
+    public class DTZTable
     {
         public readonly string Classification;
 
         private readonly BoardNormaliser normalise;
         private readonly IndexGetter getIndex;
         private readonly WLDTable WLDTable;
-        private readonly Dictionary<string, DTMTable> allTables;
-        private readonly sbyte[] Data;
+        private readonly Dictionary<string, DTZTable> allTables;
+        private readonly byte[] Data;
 
         private readonly int maxBits = 0;
 
-        public DTMTable(SolvingTable table, Dictionary<string, DTMTable> allTables)
+        public DTZTable(SolvingTable table, Dictionary<string, DTZTable> allTables)
         {
             this.allTables = allTables;
 
@@ -34,16 +34,12 @@ namespace TidyTable.Tables
             getIndex = table.GetIndex;
 
             WLDTable = new WLDTable(table);
-            Data = new sbyte[table.MaxIndex]; // only stores values for white
+            Data = new byte[table.MaxIndex]; // only stores values for white
             for (int i = 0; i < table.WhiteTable.Length; i++)
             {
-                var dtm = table.WhiteTable[i]?.DTM ?? 0;
-                if (table.WhiteTable[i]?.Outcome == Outcome.Draw)
-                {
-                    dtm = 0;
-                }
-                maxBits = Math.Max(dtm, maxBits);
-                Data[i] = dtm;
+                var dtz = table.WhiteTable[i]?.DTZ ?? 0;
+                maxBits = Math.Max(dtz, maxBits);
+                Data[i] = dtz;
             }
             maxBits = (int)Math.Floor(Math.Log2(maxBits)) + 1;
 
@@ -52,7 +48,7 @@ namespace TidyTable.Tables
 
         public Outcome GetOutcome(in Board board) => WLDTable.GetOutcome(board);
 
-        public virtual int DTM(in Board board)
+        public virtual int DTZ(in Board board)
         {
             // Probably unnecessary
             var copy = new Board(board);
@@ -62,10 +58,10 @@ namespace TidyTable.Tables
                 return Data[getIndex(copy)];
             } else
             {
-                // DTM values not stored for black
+                // DTZ values not stored for black
                 // For a draw, return 0
-                // For a win, return 0 if no moves else minimum of DTM for white after next move + 1
-                // For a loss, return 0 if no moves else maximum of DTM for white after next move + 1
+                // For a win, return 0 if no moves else minimum of DTZ for white after next move + 1
+                // For a loss, return 0 if no moves else maximum of DTZ for white after next move + 1
                 var outcome = WLDTable.GetOutcome(board);
                 if (outcome == Outcome.Draw) return 0;
 
@@ -75,16 +71,16 @@ namespace TidyTable.Tables
                 var gameInfo = new GameExtraInfo(board);
                 if (outcome == Outcome.Win)
                 {
-                    return availableMoves.Select(move => DTMForMove(copy, gameInfo, move, requiredOutcome: Outcome.Lose)).Min();
+                    return availableMoves.Select(move => DTZForMove(copy, gameInfo, move, requiredOutcome: Outcome.Lose)).Min();
                 } else
                 {
-                    return availableMoves.Select(move => DTMForMove(copy, gameInfo, move, requiredOutcome: null)).Max();
+                    return availableMoves.Select(move => DTZForMove(copy, gameInfo, move, requiredOutcome: null)).Max();
                 }
             }
         }
 
-        // DTM potentially requires a 1-ply search, and this therefore requires a 1 to 2-ply search
-        // Applies the same trick as above of min/maximising the DTM, doing a self-call for the lookup
+        // DTZ potentially requires a 1-ply search, and this therefore requires a 1 to 2-ply search
+        // Applies the same trick as above of min/maximising the DTZ, doing a self-call for the lookup
         public virtual Move? GetMove(in Board board)
         {
             // Not actually necessary
@@ -98,33 +94,33 @@ namespace TidyTable.Tables
             switch (WLDTable.GetOutcome(copy))
             {
                 case Outcome.Win:
-                    return moves.MinBy(move => DTMForMove(copy, gameInfo, move, requiredOutcome: Outcome.Lose));
+                    return moves.MinBy(move => DTZForMove(copy, gameInfo, move, requiredOutcome: Outcome.Lose));
                 case Outcome.Lose:
-                    return moves.MaxBy(move => DTMForMove(copy, gameInfo, move, requiredOutcome: null));
+                    return moves.MaxBy(move => DTZForMove(copy, gameInfo, move, requiredOutcome: null));
                 default:
-                    // DTMForMove always adds 1, and draws have DTM = 0, so look for first with DTMForMove 1
-                    // Note: Drawn position, so no move leads to an immediate checkmate (other case where DTM = 0),
-                    //      and cannot checkmate self on own turn, so any loses would take at least 2 ply => DTM > 1
-                    return moves.First(move => DTMForMove(copy, gameInfo, move, requiredOutcome: null) == 1);
+                    // DTZForMove always adds 1, and draws have DTZ = 0, so look for first with DTZForMove 1
+                    // Note: Drawn position, so no move leads to an immediate checkmate (other case where DTZ = 0),
+                    //      and cannot checkmate self on own turn, so any loses would take at least 2 ply => DTZ > 1
+                    return moves.First(move => DTZForMove(copy, gameInfo, move, requiredOutcome: null) == 1);
             }
         }
 
         // requiredOutcome: For a win, must only consider subsequent positions losing for opponent
-        private int DTMForMove(Board board, GameExtraInfo gameInfo, Move move, Outcome? requiredOutcome)
+        private int DTZForMove(Board board, GameExtraInfo gameInfo, Move move, Outcome? requiredOutcome)
         {
             // Relies on this method not modifying (normalising) the object passed to it
             board.MakeMoveWithoutRecording(move);
 
             var table = SelectTable(move, board);
-            int dtm;
-            if (requiredOutcome != null && ((table?.GetOutcome(board) ?? Outcome.Draw) != requiredOutcome)) dtm = 10000;
-            else dtm = table?.DTM(board) ?? 0;
+            int dtz;
+            if (requiredOutcome != null && ((table?.GetOutcome(board) ?? Outcome.Draw) != requiredOutcome)) dtz = 10000;
+            else dtz = table?.DTZ(board) ?? 0;
 
             board.UndoMove(move, gameInfo);
-            return dtm + 1;
+            return dtz + 1;
         }
 
-        private DTMTable? SelectTable(Move move, Board board)
+        private DTZTable? SelectTable(Move move, Board board)
         {
             if (move.CapturedPiece != (byte)PieceKind.NoPiece || move.PromotionPiece != (byte)PieceKind.NoPiece)
             {
@@ -139,36 +135,20 @@ namespace TidyTable.Tables
 
         public void WriteToFile(string filename)
         {
-             // As usual, write starting from LSB
-            int buffer = 0;
-            int bufferLength = 0;
-
-            using FileStream fs = File.OpenWrite(filename);
-            foreach (var value in Data)
-            {
-                buffer |= value << bufferLength;
-                bufferLength += maxBits;
-
-                // relies on maxBits <= 8, so only ever need to clear 1 byte of space
-                if (bufferLength >= 8)
-                {
-                    fs.WriteByte((byte)buffer);
-                    buffer >>= 8;
-                    bufferLength -= 8;
-                }
-            }
-            if (bufferLength > 0) fs.WriteByte((byte)buffer);
+            var writer = new BinaryWriter(new FileStream(filename, FileMode.Create));
+            LZWHuffman.Encode(Data, writer, maxBits);
+            writer.Close();
         }
 
-        public DTMTable(
+        public DTZTable(
             string filename,
             string classification,
             uint maxIndex,
             IndexGetter getIndex,
             BoardNormaliser normaliseBoard,
             WLDTable wldTable,
-            int maxBits, // number of bits needed to store maximum DTM present in the table
-             Dictionary<string, DTMTable> allTables
+            int maxBits, // number of bits needed to store maximum DTZ present in the table
+             Dictionary<string, DTZTable> allTables
         )
         {
             if (!File.Exists(filename)) throw new FileNotFoundException(filename);
@@ -178,31 +158,11 @@ namespace TidyTable.Tables
             normalise = normaliseBoard;
             this.getIndex = getIndex;
             this.maxBits = maxBits;
-            sbyte bitMask = (sbyte)((1 << maxBits) - 1); // for extracting data from bottom of buffer
-            Data = new sbyte[maxIndex];
+            Data = new byte[maxIndex];
             WLDTable = wldTable;
 
-            // As usual, write starting from LSB
-            int dataIndex = 0;
-            int buffer = 0;
-            int bufferLength = 0;
-
-            using var stream = File.Open(filename, FileMode.Open);
-            while (dataIndex < maxIndex)
-            {
-                // enough bits to read out an entry
-                if (bufferLength >= maxBits)
-                {
-                    Data[dataIndex++] = (sbyte)(buffer & bitMask);
-                    buffer >>= maxBits;
-                    bufferLength -= maxBits;
-                }
-                else // read in another byte of data
-                {
-                    buffer |= stream.ReadByte() << bufferLength;
-                    bufferLength += 8;
-                }
-            }
+            var reader = new BinaryReader(new FileStream(filename, FileMode.Open));
+            LZWHuffman.Decode(reader, maxBits).Read(Data, 0, Data.Length);
 
             AddSelfToAllTables();
         }
@@ -214,12 +174,12 @@ namespace TidyTable.Tables
             var reversed = Classifier.ReverseClassification(Classification);
             if (reversed != Classification)
             {
-                allTables[reversed] = new DTMTableReversed(this);
+                allTables[reversed] = new DTZTableReversed(this);
             }
         }
 
-        // for use by DTMTableReversed, flips the classification but just reverses all other fields
-        public DTMTable(DTMTable oppositeColour)
+        // for use by DTZTableReversed, flips the classification but just reverses all other fields
+        public DTZTable(DTZTable oppositeColour)
         {
             Classification = Classifier.ReverseClassification(oppositeColour.Classification);
             normalise = oppositeColour.normalise;
@@ -231,9 +191,9 @@ namespace TidyTable.Tables
         }
     }
 
-    public class DTMTableReversed: DTMTable
+    public class DTZTableReversed: DTZTable
     {
-        public DTMTableReversed(DTMTable oppositeColour): base(oppositeColour) { }
+        public DTZTableReversed(DTZTable oppositeColour): base(oppositeColour) { }
 
         public override Move? GetMove(in Board board)
         {
@@ -243,11 +203,11 @@ namespace TidyTable.Tables
             return oppositeMove?.FlipColour();
         }
 
-        public override int DTM(in Board board)
+        public override int DTZ(in Board board)
         {
             // makes an extra copy of the board, inefficient but not a massive overhead
             var flippedBoard = FlipColour(new Board(board));
-            return base.DTM(flippedBoard);
+            return base.DTZ(flippedBoard);
         }
     }
 }

@@ -65,7 +65,7 @@ namespace TidyTable.Tables
                 var entry = GetOutcome(flippedBoard);
                 if (entry == null) return null;
                 // Board/move shouldn't actually matter here, but use the original one anyway
-                return new SubTableEntry(entry.DTZ, entry.DTM, entry.Outcome);
+                return new SubTableEntry(entry.DTZ, entry.Outcome);
             };
             return new SubTable(Classifier.ReverseClassification(Classification), newGetOutcome);
         }

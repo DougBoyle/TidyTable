@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using TidyTable.Compression;
 using TidyTable.TableFormats;
 
 namespace TidyTable.Tables
@@ -71,7 +72,12 @@ namespace TidyTable.Tables
             }
         }
 
-        public void WriteToFile(string filename) => File.WriteAllBytes(filename, Outcomes);
+        public void WriteToFile(string filename)
+        {
+            var writer = new BinaryWriter(new FileStream(filename, FileMode.Create));
+            LZWHuffman.Encode(Outcomes, writer);
+            writer.Close();
+        }
 
         public WLDTable(
             string filename,
@@ -85,7 +91,13 @@ namespace TidyTable.Tables
             MaxIndex = maxIndex;
             normalise = normaliseBoard;
             this.getIndex = getIndex;
-            Outcomes = File.ReadAllBytes(filename);
+
+            // bytes = entries * 2 sides * 2 bits per entry / 8 bits per byte = entries / 2 (rounded up)
+            uint numBytes = (MaxIndex + 1) / 2;
+            Outcomes = new byte[numBytes];
+            var reader = new BinaryReader(new FileStream(filename, FileMode.Open));
+            LZWHuffman.Decode(reader).Read(Outcomes, 0, (int)numBytes);
+            reader.Close();
         }
     }
 }

@@ -17,11 +17,9 @@ namespace TidyTable.TableFormats
         // Index is assumed to be 32 bits always, will be stored as such
         public readonly uint Index;
         public readonly Board Board;
-        // Always >= 0, so signed byte actually has range 0 - 127 here, limited to this to allow fitting in 7 bits
-        // depth to zero of 50-move counter (actually 100 to allow both players moving)
-        // DTZ = 0 on a capture/pawn move, game is a draw if >= 100
-        public sbyte DTZ = -1; 
-        public sbyte DTM = -1; // depth to mate or draw, in ply (DTM in moves is ((ply + 1) / 2))
+        // 0 if draw (including 50 move counter), so valid range is only 0-99
+        // DTZ = 0 on a capture/pawn move
+        public byte DTZ = 255;
         public Outcome Outcome = Outcome.Unknown; // for Board.CurrentPlayer (assuming it is not null)
         public Move? Move = null;
 
@@ -36,13 +34,12 @@ namespace TidyTable.TableFormats
         {
             Move = move;
             DTZ = entry.DTZ;
-            DTM = entry.DTM;
             Outcome = entry.Outcome;
         }
 
         public SubTableEntry SolvingTableEntry()
         {
-            return new(DTZ, DTM, Outcome);
+            return new(DTZ, Outcome);
         }
     }
 
@@ -52,12 +49,12 @@ namespace TidyTable.TableFormats
     {
         public static Outcome Opposite(Outcome outcome)
         {
-            switch (outcome)
+            return outcome switch
             {
-                case Outcome.Win: return Outcome.Lose;
-                case Outcome.Lose: return Outcome.Win;
-                default: return outcome;
-            }
+                Outcome.Win => Outcome.Lose,
+                Outcome.Lose => Outcome.Win,
+                _ => outcome,
+            };
         }
 
         public static bool ResetsFiftyMoveCounter(Move move)

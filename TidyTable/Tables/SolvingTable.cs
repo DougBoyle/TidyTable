@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using TidyTable.Endgames;
 using TidyTable.TableFormats;
 
 namespace TidyTable.Tables
@@ -83,9 +84,9 @@ namespace TidyTable.Tables
         private void LogQuickTableVerification()
         {
             var blackCanDraw = BlackTable.Any(entry => entry != null && entry.Outcome == Outcome.Draw);
-            var longestMate = WhiteTable.MaxBy(entry => entry?.DTM ?? 0)?.DTM;
+            var longestNonDraw = WhiteTable.MaxBy(entry => entry?.DTZ ?? 0)?.DTZ;
             Console.WriteLine($"Draw exists for black: {blackCanDraw}");
-            Console.WriteLine($"Longest mate for white is {longestMate} ply ({(longestMate + 1) / 2} moves)");
+            Console.WriteLine($"Longest non-draw for white is {longestNonDraw} ply ({(longestNonDraw + 1) / 2} moves)");
         }
 
         // Could also pass this in to use normalisation knowledge,
@@ -210,44 +211,32 @@ namespace TidyTable.Tables
 
         private void UpdateBlackTable()
         {
-            // TODO: Parallel for, ensuring shared writes are atomic (e.g. num changes/TablesChanging)
             Parallel.For(0, BlackTable.Length, tableIndex =>
-            //     for (int tableIndex = 0; tableIndex < BlackTable.Length; tableIndex++)
             {
                 TableEntry? entry = BlackTable[tableIndex];
-                // When sub-tables present, max DTM in table increases unevenly due to different DTM at positions in sub tables.
-                // Hence can't assume a win/loss is the minimum/maximum value until DTM < number of iterations already performed.
-                // (Can't check entry.DTM < iterations on it's own, as this is initialsed as -1)
-                if (entry == null || (entry.Outcome != Outcome.Unknown && entry.DTM < iterations)) return; // continue;
+                if (entry == null || entry.Outcome != Outcome.Unknown) return;
 
-                UpdateEntry(tableIndex, entry, BlackTable, WhiteTable);
+                UpdateEntry(entry, BlackTable, WhiteTable);
             });
         }
 
         private void UpdateWhiteTable()
         {
-            // TODO: Parallel for, ensuring shared writes are atomic (e.g. num changes/TablesChanging)
             Parallel.For(0, WhiteTable.Length, tableIndex =>
-            //   for (int tableIndex = 0; tableIndex < WhiteTable.Length; tableIndex++)
             {
                 TableEntry? entry = WhiteTable[tableIndex];
-                // When sub-tables present, max DTM in table increases unevenly due to different DTM at positions in sub tables.
-                // Hence can't assume a win/loss is the minimum/maximum value until DTM < number of iterations already performed.
-                // (Can't check entry.DTM < iterations on it's own, as this is initialsed as -1)
-                if (entry == null || (entry.Outcome != Outcome.Unknown && entry.DTM < iterations)) return; // continue;
+                if (entry == null || entry.Outcome != Outcome.Unknown) return;
 
-                UpdateEntry(tableIndex, entry, WhiteTable, BlackTable);
+                UpdateEntry(entry, WhiteTable, BlackTable);
             });
         }
 
         private void FillInDraws(TableEntry?[] myTable, TableEntry?[] theirTable)
         {
-            // TODO: Parallel for, ensuring shared writes are atomic
             Parallel.For(0, myTable.Length, index =>
-            //   for (int index = 0; index < myTable.Length; index++)
             {
                 TableEntry? entry = myTable[index];
-                if (entry == null || entry.Outcome != Outcome.Unknown) return; // continue;
+                if (entry == null || entry.Outcome != Outcome.Unknown) return;
 
                 var board = entry.Board;
 
@@ -262,7 +251,7 @@ namespace TidyTable.Tables
             });
         }
 
-        private void UpdateEntry(int tableIndex, TableEntry entry, TableEntry?[] myTable, TableEntry?[] theirTable)
+        private void UpdateEntry(TableEntry entry, TableEntry?[] myTable, TableEntry?[] theirTable)
         {
             var board = entry.Board;
             var allAvailableMoves = board.GetAllAvailableMoves();
@@ -271,8 +260,6 @@ namespace TidyTable.Tables
             {
                 TablesChanging = true;
                 Interlocked.Increment(ref changes);
-            //    changes++;
-                entry.DTM = 0;
                 entry.DTZ = 0;
                 entry.Outcome = board.InCheck(Player.Black) ? Outcome.Lose : Outcome.Draw;
             }
@@ -284,13 +271,10 @@ namespace TidyTable.Tables
                 // (based on each entry for opponent in the position reached, but same board and flipped outcome)
                 var allEntries = allAvailableMoves.Select(move => (move, GetEntryForMove(move, board, theirTable)));
                 (Move, SubTableEntry)? choice = ChooseEntry(allEntries);
-                // Results sometimes need overwriting with a lower DTM, but when an entry is already known
-                // and the entry found doesn't lower the DTM, don't wrongly signal TablesChanging
-                if (choice != null && (entry.Outcome == Outcome.Unknown || choice?.Item2.DTM < entry.DTM))
+                if (choice != null)
                 {
                     (Move, SubTableEntry) chosen = ((Move, SubTableEntry))choice;
                     TablesChanging = true;
-                    // changes++;
                     Interlocked.Increment(ref changes);
                     entry.Update(chosen.Item1, chosen.Item2);
                 }
@@ -304,13 +288,15 @@ namespace TidyTable.Tables
             boardCopy.MakeMoveWithoutRecording(move);
 
             // Simplifies to other table
-            // (TODO: Consider En-passant if 1+ pawn either side)
-            if (move.CapturedPiece != (byte)PieceKind.NoPiece || move.PromotionPiece != (byte)PieceKind.NoPiece)
+            if (move.CapturedPiece != (byte)PieceKind.NoPiece 
+                || move.PromotionPiece != (byte)PieceKind.NoPiece
+                || (move.ToIdx == board.EnPassantIndex && BoardIndexing.IsPawn((PieceKind)move.MovingPiece)) // En passant
+            )
             {
                 // Check for insufficient material -> immediate draw
                 if (boardCopy.IsInsufficientMaterial())
                 {
-                    return new SubTableEntry(1, 1, Outcome.Draw);
+                    return new SubTableEntry(0, Outcome.Draw);
                 }
                 else
                 {
@@ -333,25 +319,22 @@ namespace TidyTable.Tables
 
         public static (Move, SubTableEntry)? ChooseEntry(IEnumerable<(Move, SubTableEntry)> entries)
         {
-            // 1. Any win (without 50 move counter hit) => win, pick smallest DTM
+            // 1. Any win (without 50 move counter hit) => win, pick smallest DTZ
             if (entries.Any(entry => entry.Item2.Outcome == Outcome.Win))
             {
                 return entries
                     .Where(entry => entry.Item2.Outcome == Outcome.Win)
-                    .MinBy(entry => entry.Item2.DTM)!;
+                    .MinBy(entry => entry.Item2.DTZ)!;
             }
             // 2. Any unknown (and no win) => unknown, must wait, no change
             else if (entries.Any(entry => entry.Item2.Outcome == Outcome.Unknown)) return null;
-            // 3. Any draw (and no win) => drawing, pick draw with smallest DTM
+            // 3. Any draw (and no win) => drawing, pick any move
             else if (entries.Any(entry => entry.Item2.Outcome == Outcome.Draw))
             {
-                return entries
-                    .Where(entry => entry.Item2.Outcome == Outcome.Draw)
-                    .MinBy(entry => entry.Item2.DTM)!;
+                return entries.First(entry => entry.Item2.Outcome == Outcome.Draw)!;
             }
-            // 4. All losing => losing, pick largest DTM.
-            // *** technically, should try to set up stalemate traps, but can't detect with this method
-            else return entries.MaxBy(entry => entry.Item2.DTM);
+            // 4. All losing => losing, pick largest DTZ.
+            else return entries.MaxBy(entry => entry.Item2.DTZ);
         }
 
         public static (Move, SubTableEntry) ChooseRemainingDraws(IEnumerable<(Move, SubTableEntry)> entries)

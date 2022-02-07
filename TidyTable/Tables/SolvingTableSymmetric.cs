@@ -77,8 +77,8 @@ namespace TidyTable.Tables
 
         private void LogQuickTableVerification()
         {
-            var longestMate = Table.MaxBy(entry => entry?.DTM ?? 0)?.DTM;
-            Console.WriteLine($"Longest mate is {longestMate} ply ({(longestMate + 1) / 2} moves)");
+            var longestNonDraw = Table.MaxBy(entry => entry?.DTZ ?? 0)?.DTZ;
+            Console.WriteLine($"Longest mate is {longestNonDraw} ply ({(longestNonDraw + 1) / 2} moves)");
         }
 
         // Could also pass this in to use normalisation knowledge,
@@ -183,7 +183,7 @@ namespace TidyTable.Tables
                 // When sub-tables present, max DTM in table increases unevenly due to different DTM at positions in sub tables.
                 // Hence can't assume a win/loss is the minimum/maximum value until DTM < number of iterations already performed.
                 // (Can't check entry.DTM < iterations on it's own, as this is initialsed as -1)
-                if (entry == null || (entry.Outcome != Outcome.Unknown && entry.DTM < iterations)) return; // continue;
+                if (entry == null || entry.Outcome != Outcome.Unknown) return; // continue;
 
                 UpdateEntry(entry);
             });
@@ -194,7 +194,7 @@ namespace TidyTable.Tables
             Parallel.For(0, Table.Length, index =>
             {
                 TableEntry? entry = Table[index];
-                if (entry == null || entry.Outcome != Outcome.Unknown) return; // continue;
+                if (entry == null || entry.Outcome != Outcome.Unknown) return;
 
                 var board = entry.Board;
 
@@ -218,7 +218,6 @@ namespace TidyTable.Tables
             {
                 TablesChanging = true;
                 Interlocked.Increment(ref changes);
-                entry.DTM = 0;
                 entry.DTZ = 0;
                 entry.Outcome = board.InCheck(Player.Black) ? Outcome.Lose : Outcome.Draw;
             }
@@ -230,9 +229,7 @@ namespace TidyTable.Tables
                 // (based on each entry for opponent in the position reached, but same board and flipped outcome)
                 var allEntries = allAvailableMoves.Select(move => (move, GetEntryForMove(move, board)));
                 (Move, SubTableEntry)? choice = SolvingTable.ChooseEntry(allEntries);
-                // Results sometimes need overwriting with a lower DTM, but when an entry is already known
-                // and the entry found doesn't lower the DTM, don't wrongly signal TablesChanging
-                if (choice != null && (entry.Outcome == Outcome.Unknown || choice?.Item2.DTM < entry.DTM))
+                if (choice != null)
                 {
                     (Move, SubTableEntry) chosen = ((Move, SubTableEntry))choice;
                     TablesChanging = true;
@@ -255,7 +252,7 @@ namespace TidyTable.Tables
                 // Check for insufficient material -> immediate draw
                 if (boardCopy.IsInsufficientMaterial())
                 {
-                    return new SubTableEntry(1, 1, Outcome.Draw);
+                    return new SubTableEntry(0, Outcome.Draw);
                 }
                 else
                 {

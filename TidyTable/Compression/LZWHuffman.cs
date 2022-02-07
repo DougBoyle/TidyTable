@@ -8,11 +8,10 @@ namespace TidyTable.Compression
 {
     public class LZWHuffman
     {
-        public static void Encode(byte[] input, BinaryWriter output)
+        public static void Encode(byte[] input, BinaryWriter output, int maxBits = 8)
         {
-
             var lzwStream = new TwelveBitStream();
-            LZW.Compress(new MemoryStream(input), input.Length, lzwStream);
+            LZW.Compress(new MemoryStream(input), input.Length, lzwStream, maxBits);
             var stream = lzwStream.stream.stream;
 
             // Set up for bytes just written to be read out now for Huffman encoding
@@ -23,7 +22,7 @@ namespace TidyTable.Compression
             Huffman12.Compress(new BinaryReader(stream), output, (int)symbolLength);
         }
 
-        public static Stream Decode(BinaryReader input) => new LZWStream(new Huffman12Reader(input));
+        public static Stream Decode(BinaryReader input, int maxBits = 8) => new LZWStream(new Huffman12Reader(input), maxBits);
 
         public static void Test()
         {
