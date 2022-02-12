@@ -24,6 +24,7 @@ namespace TidyTable.Tables
         private readonly byte[] Data;
 
         private readonly int maxBits = 0;
+        private readonly bool symmetric = false;
 
         public DTZTable(SolvingTable table, Dictionary<string, DTZTable> allTables)
         {
@@ -46,12 +47,40 @@ namespace TidyTable.Tables
             AddSelfToAllTables();
         }
 
+        public DTZTable(SolvingTableSymmetric table, Dictionary<string, DTZTable> allTables)
+        {
+            symmetric = true;
+            this.allTables = allTables;
+
+            Classification = table.Classification;
+            normalise = table.NormaliseBoard;
+            getIndex = table.GetIndex;
+
+            WLDTable = new WLDTable(table);
+            Data = new byte[table.MaxIndex]; // only stores values for white, but lookup faster when symmetric
+            for (int i = 0; i < table.Table.Length; i++)
+            {
+                var dtz = table.Table[i]?.DTZ ?? 0;
+                maxBits = Math.Max(dtz, maxBits);
+                Data[i] = dtz;
+            }
+            maxBits = (int)Math.Floor(Math.Log2(maxBits)) + 1;
+
+            AddSelfToAllTables();
+        }
+
         public Outcome GetOutcome(in Board board) => WLDTable.GetOutcome(board);
 
         public virtual int DTZ(in Board board)
         {
-            // Probably unnecessary
             var copy = new Board(board);
+            if (symmetric)
+            {
+                if (board.CurrentPlayer == Player.Black) FlipColour(copy);
+                normalise(copy);
+                return Data[getIndex(copy)];
+            }
+
             if (board.CurrentPlayer == Player.White)
             {
                 normalise(copy);
@@ -81,6 +110,7 @@ namespace TidyTable.Tables
 
         // DTZ potentially requires a 1-ply search, and this therefore requires a 1 to 2-ply search
         // Applies the same trick as above of min/maximising the DTZ, doing a self-call for the lookup
+        // TODO: Can optimise by flipping to black (and flipping move back) if symmetric
         public virtual Move? GetMove(in Board board)
         {
             // Not actually necessary

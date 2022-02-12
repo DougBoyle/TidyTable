@@ -14,7 +14,7 @@ namespace TidyTable.TableFormats
     // Only used for reading out of, so all fields readonly
     public class SubTableEntry
     {
-        public readonly byte DTZ;
+        public readonly byte DTZ; // is 0 when the best move is a capture or pawn push
         public readonly Outcome Outcome;
         
         public SubTableEntry(byte DTZ, Outcome outcome)
@@ -37,21 +37,29 @@ namespace TidyTable.TableFormats
             return new SubTableEntry(dtz, outcome);
         }
 
-        public ushort ToShort() // Represents as just 9 bits
+        // Since 0 <= DTZ <= 99, can represent as just 1 byte.
+        // Draw = 0. (0 outcome, 0 DTZ)
+        // DTZ = 0 and lose (in checkmate) => byte value 255, otherwise unused
+        // DTZ = 0 and win (this is a zeroing move) => (1 outcome, 0 DTZ)
+        // DTZ != 0 => 0 outcome is lose, 1 outcome is win
+        public byte ToByte()
         {
             if (DTZ > 99) throw new ArgumentOutOfRangeException("Invalid DTZ, should be in range 0-99");
-            ushort result = (ushort)Outcome;
-            result <<= 7;
-            result |= (byte)DTZ;
-            return result;
+            if (Outcome == Outcome.Draw) return 0;
+            if (DTZ == 0 && Outcome == Outcome.Lose) return 255;
+            return (byte)((Outcome == Outcome.Win ? 0x80 : 0) + DTZ);
         }
 
-        public static SubTableEntry FromShort(ushort value)
+        public static SubTableEntry FromByte(byte value)
         {
-            byte DTZ = (byte)(value & 0x7F);
-            value >>= 7;
-            Outcome outcome = (Outcome)value;
-            return new SubTableEntry(DTZ, outcome);
+            switch (value)
+            {
+                case 0: return new SubTableEntry(0, Outcome.Draw);
+                case 255: return new SubTableEntry(0, Outcome.Lose);
+                default:
+                    var isWin = (value & 0x80) != 0 ? Outcome.Win : Outcome.Lose;
+                    return new SubTableEntry((byte)(value & 0x7F), isWin);
+            }
         }
     }
 }

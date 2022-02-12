@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 using TidyTable.Compression;
 using TidyTable.TableFormats;
+using static Chessington.GameEngine.AI.Endgame.NormalForm;
 
 namespace TidyTable.Tables
 {
@@ -23,8 +24,10 @@ namespace TidyTable.Tables
         private int bufferLength = 0;
         private int index = 0;
 
-        private BoardNormaliser normalise;
-        private IndexGetter getIndex;
+        private readonly BoardNormaliser normalise;
+        private readonly IndexGetter getIndex;
+
+        private readonly bool symmetric = false;
 
         // Need SolvingTable, as only it exposes underlying white/black tables and max index, normalisation, indexing
         public WLDTable(SolvingTable table)
@@ -47,13 +50,39 @@ namespace TidyTable.Tables
             if (bufferLength > 0) Outcomes[index] = buffer;
         }
 
+        public WLDTable(SolvingTableSymmetric table)
+        {
+            Classification = table.Classification;
+            MaxIndex = table.MaxIndex;
+            normalise = table.NormaliseBoard;
+            getIndex = table.GetIndex;
+            symmetric = true;
+
+            // bytes = entries * 2 bits per entry / 8 bits per byte = entries / 4 (rounded up)
+            uint numBytes = (MaxIndex + 3) / 4;
+            Outcomes = new byte[numBytes];
+
+            Array.ForEach(table.Table, entry => WriteOutcome(entry?.Outcome ?? Outcome.Draw));
+
+            if (bufferLength > 0) Outcomes[index] = buffer;
+        }
+
         public Outcome GetOutcome(in Board board)
         {
-            // Probably unnecessary
-            var copy = new Board(board);
+            uint index = 0;
+            Board copy = new(board);
+            if (board.CurrentPlayer == Player.Black)
+            {
+                if (symmetric)
+                {
+                    FlipColour(copy);
+                } else
+                {
+                    index = MaxIndex;
+                }
+            }
             normalise(copy);
-            var index = getIndex(copy);
-            if (board.CurrentPlayer == Player.Black) index += MaxIndex;
+            index += getIndex(copy);
 
             int offset = (int)((index & 3) << 1); // 4 entries per byte = last 2 bits, 2 bit size = left shift
             var b = Outcomes[index >> 2]; // 4 entries per byte = divide by 4
@@ -92,8 +121,17 @@ namespace TidyTable.Tables
             normalise = normaliseBoard;
             this.getIndex = getIndex;
 
-            // bytes = entries * 2 sides * 2 bits per entry / 8 bits per byte = entries / 2 (rounded up)
-            uint numBytes = (MaxIndex + 1) / 2;
+            uint numBytes;
+            if (Classifier.ReverseClassification(classification) == classification)
+            {
+                symmetric = true;
+                numBytes = (MaxIndex + 3) / 4;
+            } else
+            {
+                // bytes = entries * 2 sides * 2 bits per entry / 8 bits per byte = entries / 2 (rounded up)
+                numBytes = (MaxIndex + 1) / 2;
+            }
+
             Outcomes = new byte[numBytes];
             var reader = new BinaryReader(new FileStream(filename, FileMode.Open));
             LZWHuffman.Decode(reader).Read(Outcomes, 0, (int)numBytes);

@@ -82,10 +82,7 @@ namespace TidyTable.Tables
                 for (int i = 0; i < colourTable.Length; i++)
                 {
                     TableEntry? entry = colourTable[i];
-                    ushort encoded = entry != null ? new SubTableEntry(entry).ToShort() : (ushort)0;
-                    byte[] bytes = BitConverter.GetBytes(encoded);
-                    if (BitConverter.IsLittleEndian) Array.Reverse(bytes);
-                    fs.Write(bytes, 0, 2);
+                   
                 }
             }
         }
@@ -96,10 +93,8 @@ namespace TidyTable.Tables
             for (int i = 0; i < table.Table.Length; i++)
             {
                 TableEntry? entry = table.Table[i];
-                ushort encoded = entry != null ? new SubTableEntry(entry).ToShort() : (ushort)0;
-                byte[] bytes = BitConverter.GetBytes(encoded);
-                if (BitConverter.IsLittleEndian) Array.Reverse(bytes);
-                fs.Write(bytes, 0, 2);
+                byte encoded = entry != null ? new SubTableEntry(entry).ToByte() : (byte)0;
+                fs.WriteByte(encoded);
             }     
         }
 
@@ -145,10 +140,9 @@ namespace TidyTable.Tables
             {
                 for (int i = 0; i < table.Length; i++)
                 {
-                    var bytes = new byte[2];
-                    stream.Read(bytes, 0, 2);
-                    ushort value = (ushort)((bytes[0] << 8) + bytes[1]);
-                    table[i] = SubTableEntry.FromShort(value);
+                    var value = stream.ReadByte();
+                    if (value < 0) throw new EndOfStreamException("Received -1 when reading byte from stream");
+                    table[i] = SubTableEntry.FromByte((byte)value);
                 }
             }
 
@@ -176,10 +170,9 @@ namespace TidyTable.Tables
 
             for (int i = 0; i < Table.Length; i++)
             {
-                var bytes = new byte[2];
-                stream.Read(bytes, 0, 2);
-                ushort value = (ushort)((bytes[0] << 8) + bytes[1]);
-                Table[i] = SubTableEntry.FromShort(value);
+                var value = stream.ReadByte();
+                if (value < 0) throw new EndOfStreamException("Received -1 when reading byte from stream");
+                Table[i] = SubTableEntry.FromByte((byte)value);
             }
 
             return (in Board board) =>

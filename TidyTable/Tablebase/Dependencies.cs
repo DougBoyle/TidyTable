@@ -12,7 +12,7 @@ namespace TidyTable.Tablebase
     // Everything in this file assumes kings not included
     internal class Dependencies
     {
-        const string TablePrefix = "tables/automated/";
+        const string TablePrefix = "tables/v2/";
 
         // returns a list of colour-independent tables that need solving before this table
         public static HashSet<string> DependsOn(List<PieceKind> pieces)
@@ -129,7 +129,6 @@ namespace TidyTable.Tablebase
             return orderedList;
         }
 
-        // TODO: Use symmetric tables where possible
         public static void SolveAllTables()
         {
             var pieceLists = OrderTables();
@@ -160,7 +159,7 @@ namespace TidyTable.Tablebase
 
                 var filename = TablePrefix + name + ".dtm"; // needed to write extra tables in LoadFromFileElseSolve
 
-                var solved = ThreePieces.LoadFromFileElseSolve(
+                var solved = TableLoading.LoadFromFileElseSolve(
                     filename,
                     tableWithKings.Where(piece => (byte)piece < 6).Select(piece => (ColourlessPiece)piece).ToList(),
                     tableWithKings.Where(piece => (byte)piece >= 6).Select(piece => (ColourlessPiece)((byte)piece - 6)).ToList(),
