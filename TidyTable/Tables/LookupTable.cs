@@ -56,7 +56,7 @@ namespace TidyTable.Tables
             GetMove = (in Board board) =>
             {
                 var copy = new Board(board);
-                if (board.CurrentPlayer == Player.Black) FlipColour(copy);
+                if (board.CurrentPlayer == Player.Black) copy = FlipColour(copy);
                 var transform = normaliser(copy);
                 var index = table.GetIndex(copy);
                 var entry = table.Table[index];
@@ -213,7 +213,7 @@ namespace TidyTable.Tables
             return (in Board board) =>
             {
                 var boardCopy = new Board(board);
-                if (board.CurrentPlayer == Player.Black) FlipColour(boardCopy);
+                if (board.CurrentPlayer == Player.Black) boardCopy = FlipColour(boardCopy);
                 var mapping = normaliseBoard(boardCopy);
                 ushort entry = Table[getIndex(boardCopy)];
                 var decodedEntry = ProbeTableEntry.FromShort(entry, boardCopy);
@@ -341,7 +341,7 @@ namespace TidyTable.Tables
             MoveSearcher GetMove = (in Board board) =>
             {
                 var boardCopy = new Board(board);
-                if (board.CurrentPlayer == Player.Black) FlipColour(boardCopy);
+                if (board.CurrentPlayer == Player.Black) boardCopy = FlipColour(boardCopy);
                 var mapping = normaliseBoard(boardCopy);
                 ushort entry = GetEntry(getIndex(boardCopy));
                 var decodedEntry = ProbeTableEntry.FromShort(entry, boardCopy);

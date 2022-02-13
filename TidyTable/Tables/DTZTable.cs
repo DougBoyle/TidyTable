@@ -76,7 +76,7 @@ namespace TidyTable.Tables
             var copy = new Board(board);
             if (symmetric)
             {
-                if (board.CurrentPlayer == Player.Black) FlipColour(copy);
+                if (board.CurrentPlayer == Player.Black) copy = FlipColour(copy);
                 normalise(copy);
                 return Data[getIndex(copy)];
             }
@@ -167,6 +167,7 @@ namespace TidyTable.Tables
         {
             var writer = new BinaryWriter(new FileStream(filename, FileMode.Create));
             LZWHuffman.Encode(Data, writer, maxBits);
+            Console.WriteLine($"DTZ table {filename} has max bits {maxBits}");
             writer.Close();
         }
 

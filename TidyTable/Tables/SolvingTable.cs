@@ -64,14 +64,21 @@ namespace TidyTable.Tables
             PopulateTable();
             iterations = 0;
 
+            var watch = new System.Diagnostics.Stopwatch();
+
+            
             // until tables stop changing, iterate over all entries to solve by backtracking from checkmates/draws
             while (TablesChanging)
             {
+                watch.Start();
                 TablesChanging = false;
                 changes = 0;
                 UpdateBlackTable();
+                Console.Write(".");
                 UpdateWhiteTable();
-                Console.WriteLine($"Iteration {iterations} complete, {changes} changes");
+                watch.Stop();
+                Console.WriteLine($"Iteration {iterations} complete, {changes} changes, took {watch.ElapsedMilliseconds/1000}s");
+                watch.Reset();
                 iterations++;
             }
             FillInDraws(WhiteTable, BlackTable);

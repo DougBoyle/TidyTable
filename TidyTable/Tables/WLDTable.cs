@@ -75,7 +75,7 @@ namespace TidyTable.Tables
             {
                 if (symmetric)
                 {
-                    FlipColour(copy);
+                    copy = FlipColour(copy);
                 } else
                 {
                     index = MaxIndex;

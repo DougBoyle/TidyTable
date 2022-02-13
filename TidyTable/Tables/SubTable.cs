@@ -44,7 +44,7 @@ namespace TidyTable.Tables
             GetOutcome = (in Board board) =>
             {
                 var boardCopy = new Board(board);
-                if (board.CurrentPlayer == Player.Black) FlipColour(boardCopy);
+                if (board.CurrentPlayer == Player.Black) boardCopy = FlipColour(boardCopy);
                 table.NormaliseBoard(boardCopy);
                 var index = table.GetIndex(boardCopy);
                 var tableEntry = table.Table[index];
@@ -82,7 +82,8 @@ namespace TidyTable.Tables
                 for (int i = 0; i < colourTable.Length; i++)
                 {
                     TableEntry? entry = colourTable[i];
-                   
+                    byte encoded = entry != null ? new SubTableEntry(entry).ToByte() : (byte)0;
+                    fs.WriteByte(encoded);
                 }
             }
         }
@@ -178,7 +179,7 @@ namespace TidyTable.Tables
             return (in Board board) =>
             {
                 var boardCopy = new Board(board);
-                if (board.CurrentPlayer == Player.Black) FlipColour(boardCopy);
+                if (board.CurrentPlayer == Player.Black) boardCopy = FlipColour(boardCopy);
                 normaliseBoard(boardCopy);
                 return Table[getIndex(boardCopy)];
             };

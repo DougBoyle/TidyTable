@@ -8,3 +8,5 @@ defined in the same file to swap the colour of pieces in a move.
 SubTable.SwappedColour (same for LookupTable) takes a table for KQK and
 returns one for KKQ. Uses FlipColour(board) defined in Chessington NormalForm
 to flip a position for the other colour, and Move.FlipColour for mapping moves.
+
+FlipColour(board) does not modify the original board, and instead returns a copy.

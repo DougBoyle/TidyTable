@@ -132,9 +132,6 @@ namespace TidyTable.Tablebase
         public static void SolveAllTables()
         {
             var pieceLists = OrderTables();
-            // TODO: For now, don't worry about keeping other data around/writing it to a file/compressing
-            //       Just check all tables can be recursively solved.
-            //       LoadFromFileElseSolve will actually write the tables of best moves too if filename given as KPK.dtm etc.
             var solvedTables = new List<SubTable>();
             foreach (var table in pieceLists)
             {
@@ -157,17 +154,24 @@ namespace TidyTable.Tablebase
                 var name = Classifier.Classify(tableWithKings);
                 Console.WriteLine($"Solving for table {name}");
 
-                var filename = TablePrefix + name + ".dtm"; // needed to write extra tables in LoadFromFileElseSolve
+                var filename = TablePrefix + name; // needed to write extra tables in LoadFromFileElseSolve
+
+                var whitePieces = tableWithKings.Where(piece => (byte)piece < 6).Select(piece => (ColourlessPiece)piece).ToList();
+                var blackPieces = tableWithKings.Where(piece => (byte)piece >= 6).Select(piece => (ColourlessPiece)((byte)piece - 6)).ToList();
 
                 var solved = TableLoading.LoadFromFileElseSolve(
                     filename,
-                    tableWithKings.Where(piece => (byte)piece < 6).Select(piece => (ColourlessPiece)piece).ToList(),
-                    tableWithKings.Where(piece => (byte)piece >= 6).Select(piece => (ColourlessPiece)((byte)piece - 6)).ToList(),
+                    whitePieces,
+                    blackPieces,
                     solvedTables,
                     indexer,
                     normaliser
                 );
                 solvedTables.Add(solved);
+                if (Classifier.ClassifyPieceLists(whitePieces, blackPieces) != Classifier.ClassifyPieceLists(blackPieces, whitePieces))
+                {
+                    solvedTables.Add(solved.SwappedColour());
+                }
 
                 Console.WriteLine($"Solved table {name}");
             }

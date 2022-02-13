@@ -21,6 +21,7 @@ namespace TidyTable.Tablebase
         )
         {
             var classification = Classifier.ClassifyPieceLists(whitePieces, blackPieces);
+            var isSymmetric = Classifier.ReverseClassification(classification) == classification;
             var solvingTable = filename + ".solv";
             if (File.Exists(solvingTable))
             {
@@ -30,12 +31,13 @@ namespace TidyTable.Tablebase
                     classification,
                     indexer.MaxIndex,
                     indexer.Index,
-                    normalisation
+                    normalisation,
+                    isSymmetric
                 );
             }
             else
             {
-                if (Classifier.ReverseClassification(classification) == classification)
+                if (isSymmetric)
                 {
                     var table = new SolvingTableSymmetric(
                         whitePieces,

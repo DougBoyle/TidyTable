@@ -17,8 +17,6 @@ if (args.Length >= 2)
 }
 */
 
-LZWHuffman.Test();
-
 /*
 input = new FileStream(filename + ".lzw", FileMode.Open);
 var checkfile = new FileStream(filename + ".check", FileMode.Create);
@@ -28,7 +26,7 @@ checkfile.Close();
 Console.WriteLine("Decompressed");
 */
 
-/*
+
 var watch = new System.Diagnostics.Stopwatch();
 watch.Start();
 
@@ -38,7 +36,7 @@ Dependencies.SolveAllTables();
 
 watch.Stop();
 Console.WriteLine($"Execution Time: {watch.ElapsedMilliseconds} ms");
-*/
+
 
 Console.WriteLine("Press enter to exit...");
 Console.ReadLine();

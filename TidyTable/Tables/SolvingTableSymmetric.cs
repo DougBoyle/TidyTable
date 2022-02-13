@@ -267,7 +267,7 @@ namespace TidyTable.Tables
             {
                 // table was initialised with all valid positions, so should not be null
                 // first flip the colour, to get opponent's outcome from their perspective
-                FlipColour(boardCopy);
+                boardCopy = FlipColour(boardCopy);
                 NormaliseBoard(boardCopy);
                 var opponentEntry = Table[GetIndex(boardCopy)];
                 if (opponentEntry == null) throw new Exception("Reached position that should not be possible");
