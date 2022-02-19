@@ -32,8 +32,8 @@ watch.Start();
 
 // Dependencies.OrderTables().ForEach(table => Console.WriteLine(Classifier.ClassifyColourless(table)));
 // FourPieces.KQKR();
-//Dependencies.SolveAllTables();
-Dependencies.SolveTableAndBelow(new List<PieceKind>() { PieceKind.WhitePawn, PieceKind.BlackPawn });
+Dependencies.SolveAllTables();
+//Dependencies.SolveTableAndBelow(new List<PieceKind>() { PieceKind.WhitePawn, PieceKind.BlackPawn });
 
 watch.Stop();
 Console.WriteLine($"Execution Time: {watch.ElapsedMilliseconds} ms");
