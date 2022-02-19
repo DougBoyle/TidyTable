@@ -27,29 +27,35 @@ namespace TidyTable.Tables
         public SubTable(SolvingTable table)
         {
             Classification = table.Classification;
+            var whiteTable = table.WhiteTable.Select(entry => entry == null ? null : new SubTableEntry(entry)).ToArray()!;
+            var blackTable = table.BlackTable.Select(entry => entry == null ? null : new SubTableEntry(entry)).ToArray()!;
+            var getIndex = table.GetIndex;
+            var normaliseBoard = table.NormaliseBoard;
+
+
             GetOutcome = (in Board board) =>
             {
                 var boardCopy = new Board(board);
-                table.NormaliseBoard(boardCopy);
-                var index = table.GetIndex(boardCopy);
-                var tableEntry = (board.CurrentPlayer == Player.White ? table.WhiteTable : table.BlackTable)[index];
-                if (tableEntry == null) return null;
-                return new SubTableEntry(tableEntry);
+                normaliseBoard(boardCopy);
+                var index = getIndex(boardCopy);
+                return (board.CurrentPlayer == Player.White ? whiteTable : blackTable)[index];
             };
         }
 
         public SubTable(SolvingTableSymmetric table)
         {
             Classification = table.Classification;
+            var compactTable = table.Table.Select(entry => entry == null ? null : new SubTableEntry(entry)).ToArray()!;
+            var getIndex = table.GetIndex;
+            var normaliseBoard = table.NormaliseBoard;
+
             GetOutcome = (in Board board) =>
             {
                 var boardCopy = new Board(board);
                 if (board.CurrentPlayer == Player.Black) boardCopy = FlipColour(boardCopy);
-                table.NormaliseBoard(boardCopy);
-                var index = table.GetIndex(boardCopy);
-                var tableEntry = table.Table[index];
-                if (tableEntry == null) return null;
-                return new SubTableEntry(tableEntry);
+                normaliseBoard(boardCopy);
+                var index = getIndex(boardCopy);
+                return compactTable[index];
             };
         }
 

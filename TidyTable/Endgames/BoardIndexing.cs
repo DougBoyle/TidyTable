@@ -222,10 +222,24 @@ namespace TidyTable.Endgames
         private readonly int[] epPieceValues; // different when in en-passant, ignore two pawns
         private readonly int epPawnsValue;
 
+        // occupancy/bitboards stored in a class that is passed around,
+        // to allow function being called in parallel
+        private class IndexingState
+        {
+            public ulong occupancy;
+            public ulong pawnOccupancy;
+            public readonly ulong[] bitboards = new ulong[12];
 
-        private ulong occupancy;
-        private ulong pawnOccupancy;
-        private readonly ulong[] bitboards = new ulong[12];
+            public IndexingState(Board board)
+            {
+                occupancy = board.Bitboards[(byte)PieceKind.WhiteKing] | board.Bitboards[(byte)PieceKind.BlackKing];
+                // count the number of pawns separately, restricted to indices 8-55
+                pawnOccupancy = 0UL;
+                Array.Copy(board.Bitboards, bitboards, 12);
+            }
+        }
+
+
 
         public GeneralBoardIndexing(List<PieceKind> nonKingPieces)
         {
@@ -282,10 +296,7 @@ namespace TidyTable.Endgames
 
         public uint Index(Board board)
         {
-            occupancy = board.Bitboards[(byte)PieceKind.WhiteKing] | board.Bitboards[(byte)PieceKind.BlackKing];
-            // count the number of pawns separately, restricted to indices 8-55
-            pawnOccupancy = 0UL;
-            Array.Copy(board.Bitboards, bitboards, 12);
+            var indexingState = new IndexingState(board);
 
             // Check for en-passant, exclude the corresponding pieces from the copy of the bitboards
             // for remaining index calculation, but do add to occupancy bitboard along with EP-square and pawn square before move
@@ -301,48 +312,48 @@ namespace TidyTable.Endgames
                         ulong leftCapture = ((bit & OtherMasks.Not_A_File) >> 9) & pawnBoard;
                         if (leftCapture != 0)
                         {
-                            pawnOccupancy = (bit << 8) | bit | (bit >> 8) | leftCapture;
-                            occupancy |= pawnOccupancy;
-                            bitboards[(byte)PieceKind.WhitePawn] ^= leftCapture;
-                            bitboards[(byte)PieceKind.BlackPawn] ^= bit >> 8;
-                            return IndexEp(board, 1 + 2 * column);
+                            indexingState.pawnOccupancy = (bit << 8) | bit | (bit >> 8) | leftCapture;
+                            indexingState.occupancy |= indexingState.pawnOccupancy;
+                            indexingState.bitboards[(byte)PieceKind.WhitePawn] ^= leftCapture;
+                            indexingState.bitboards[(byte)PieceKind.BlackPawn] ^= bit >> 8;
+                            return IndexEp(board, 2 * column - 1, indexingState);
                         }
                         ulong rightCapture = ((bit & OtherMasks.Not_H_File) >> 7) & pawnBoard;
                         if (rightCapture != 0)
                         {
-                            pawnOccupancy= (bit << 8) | bit | (bit >> 8) | rightCapture;
-                            occupancy |= pawnOccupancy;
-                            bitboards[(byte)PieceKind.WhitePawn] ^= rightCapture;
-                            bitboards[(byte)PieceKind.BlackPawn] ^= bit >> 8;
-                            return IndexEp(board, 2 * column);
+                            indexingState.pawnOccupancy = (bit << 8) | bit | (bit >> 8) | rightCapture;
+                            indexingState.occupancy |= indexingState.pawnOccupancy;
+                            indexingState.bitboards[(byte)PieceKind.WhitePawn] ^= rightCapture;
+                            indexingState.bitboards[(byte)PieceKind.BlackPawn] ^= bit >> 8;
+                            return IndexEp(board, 2 * column, indexingState);
                         }
                         break;
                     case Player.Black:
                         pawnBoard = board.Bitboards[(byte)PieceKind.BlackPawn];
                         leftCapture = ((bit & OtherMasks.Not_A_File) << 7) & pawnBoard;
                         if (leftCapture != 0) {
-                            pawnOccupancy = (bit << 8) | bit | (bit >> 8) | leftCapture;
-                            occupancy |= pawnOccupancy;
-                            bitboards[(byte)PieceKind.BlackPawn] ^= leftCapture;
-                            bitboards[(byte)PieceKind.WhitePawn] ^= bit << 8;
-                            return IndexEp(board, 1 + 2 * column); 
+                            indexingState.pawnOccupancy = (bit << 8) | bit | (bit >> 8) | leftCapture;
+                            indexingState.occupancy |= indexingState.pawnOccupancy;
+                            indexingState.bitboards[(byte)PieceKind.BlackPawn] ^= leftCapture;
+                            indexingState.bitboards[(byte)PieceKind.WhitePawn] ^= bit << 8;
+                            return IndexEp(board, 1 + 2 * column, indexingState); 
                         }
                         rightCapture = ((bit & OtherMasks.Not_H_File) << 9) & pawnBoard;
                         if (rightCapture != 0)
                         {
-                            pawnOccupancy = (bit << 8) | bit | (bit >> 8) | rightCapture;
-                            occupancy |= pawnOccupancy;
-                            bitboards[(byte)PieceKind.BlackPawn] ^= rightCapture;
-                            bitboards[(byte)PieceKind.WhitePawn] ^= bit << 8;
-                            return IndexEp(board, 2 * column);
+                            indexingState.pawnOccupancy = (bit << 8) | bit | (bit >> 8) | rightCapture;
+                            indexingState.occupancy |= indexingState.pawnOccupancy;
+                            indexingState.bitboards[(byte)PieceKind.BlackPawn] ^= rightCapture;
+                            indexingState.bitboards[(byte)PieceKind.WhitePawn] ^= bit << 8;
+                            return IndexEp(board, 2 * column, indexingState);
                         }
                         break;
                 }
             }
-            return IndexNonEp(board);
+            return IndexNonEp(board, indexingState);
         }
 
-        public uint IndexNonEp(Board board)
+        private uint IndexNonEp(Board board, IndexingState indexingState)
         {
             int whiteKingIndex = board.FindKing(Player.White);
             // can discard bit 3 = which half of row, and shift bits for which row down one
@@ -357,26 +368,26 @@ namespace TidyTable.Endgames
             {
                 var piece = nonKingPieces[i];
                 var value = pieceValues[i];
-                ulong bit = BitUtils.PopLSB(ref bitboards[(byte)piece]);
+                ulong bit = BitUtils.PopLSB(ref indexingState.bitboards[(byte)piece]);
                 if (bit == 0) throw new ArgumentException($"Board was missing a {piece}");
                 if (IsPawn(piece))
                 {
-                    var numPreviousPawns = BitUtils.Count1s((bit - 1) & pawnOccupancy);
+                    var numPreviousPawns = BitUtils.Count1s((bit - 1) & indexingState.pawnOccupancy);
                     index += value * (BitUtils.BitToIndex(bit) - 8 - numPreviousPawns);
-                    pawnOccupancy |= bit;
+                    indexingState.pawnOccupancy |= bit;
                 }
                 else
                 {
-                    var numPreviousPieces = BitUtils.Count1s((bit - 1) & occupancy);
+                    var numPreviousPieces = BitUtils.Count1s((bit - 1) & indexingState.occupancy);
                     index += value * (BitUtils.BitToIndex(bit) - numPreviousPieces);
                 }
-                occupancy |= bit;
+                indexingState.occupancy |= bit;
             }
             return (uint)index;
         }
 
         // TODO: Could commonise with normal method by passing in a 'values' object of either normal or EP values
-        public uint IndexEp(Board board, int epCase)
+        private uint IndexEp(Board board, int epCase, IndexingState indexingState)
         {
             int index = 32*wkValue + epCase*epPawnsValue; // offset past non-ep and earlier ep cases
 
@@ -393,20 +404,20 @@ namespace TidyTable.Endgames
             {
                 var piece = epNonKingPieces[i];
                 var value = epPieceValues[i];
-                ulong bit = BitUtils.PopLSB(ref bitboards[(byte)piece]);
+                ulong bit = BitUtils.PopLSB(ref indexingState.bitboards[(byte)piece]);
                 if (bit == 0) throw new ArgumentException($"Board was missing a {piece}");
                 if (IsPawn(piece))
                 {
-                    var numPreviousPawns = BitUtils.Count1s((bit - 1) & pawnOccupancy);
+                    var numPreviousPawns = BitUtils.Count1s((bit - 1) & indexingState.pawnOccupancy);
                     index += value * (BitUtils.BitToIndex(bit) - 8 - numPreviousPawns);
-                    pawnOccupancy |= bit;
+                    indexingState.pawnOccupancy |= bit;
                 }
                 else
                 {
-                    var numPreviousPieces = BitUtils.Count1s((bit - 1) & occupancy);
+                    var numPreviousPieces = BitUtils.Count1s((bit - 1) & indexingState.occupancy);
                     index += value * (BitUtils.BitToIndex(bit) - numPreviousPieces);
                 }
-                occupancy |= bit;
+                indexingState.occupancy |= bit;
             }
             return (uint)index;
         }

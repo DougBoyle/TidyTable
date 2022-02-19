@@ -36,7 +36,7 @@ namespace TidyTable.Tablebase
                 copy.RemoveAt(i);
                 if (piece == PieceKind.WhitePawn || piece == PieceKind.BlackPawn)
                 {
-                    for (var promotion = 1; promotion < 4; promotion++) {
+                    for (var promotion = 1; promotion < 5; promotion++) {
                         var promotionCopy = new List<PieceKind>(copy);
                         var newPiece = (PieceKind)((byte)piece + promotion);
                         promotionCopy.Add(newPiece);
@@ -141,7 +141,61 @@ namespace TidyTable.Tablebase
                 
                 BoardIndexer indexer = !hasPawns ? new NoPawnBoardIndexing(table)
                     : !hasBlackPawns ? new WhitePawnBoardIndexing(table)
-                    : throw new NotSupportedException("Indexing/normalisation for pawns on black/both sides not yet implemented");
+                    : new GeneralBoardIndexing(table);
+                BoardNormaliser normaliser = hasPawns ? Normalisation.NormalisePawnsBoard : Normalisation.NormaliseNoPawnsBoard;
+
+
+                // include the kings in the filename, as they are expected for the actual table classifications
+                var tableWithKings = new List<PieceKind>(table)
+                {
+                    PieceKind.WhiteKing,
+                    PieceKind.BlackKing
+                };
+                var name = Classifier.Classify(tableWithKings);
+                Console.WriteLine($"Solving for table {name}");
+
+                var filename = TablePrefix + name; // needed to write extra tables in LoadFromFileElseSolve
+
+                var whitePieces = tableWithKings.Where(piece => (byte)piece < 6).Select(piece => (ColourlessPiece)piece).ToList();
+                var blackPieces = tableWithKings.Where(piece => (byte)piece >= 6).Select(piece => (ColourlessPiece)((byte)piece - 6)).ToList();
+
+                var solved = TableLoading.LoadFromFileElseSolve(
+                    filename,
+                    whitePieces,
+                    blackPieces,
+                    solvedTables,
+                    indexer,
+                    normaliser
+                );
+                solvedTables.Add(solved);
+                if (Classifier.ClassifyPieceLists(whitePieces, blackPieces) != Classifier.ClassifyPieceLists(blackPieces, whitePieces))
+                {
+                    solvedTables.Add(solved.SwappedColour());
+                }
+
+                Console.WriteLine($"Solved table {name}");
+            }
+        }
+
+
+        // var tablesReadyToSolve = allTables.Where(table => DependsOn(table).IsSubsetOf(covered)).ToList();
+        public static void SolveTableAndBelow(List<PieceKind> finalTable)
+        {
+            var pieceLists = OrderTables().Where(table =>
+                Classifier.ClassifyColourless(table) == Classifier.ClassifyColourless(finalTable)
+                || DependsOn(finalTable).Contains(Classifier.ClassifyColourless(table))
+            ).ToList();
+            
+            var solvedTables = new List<SubTable>();
+            foreach (var table in pieceLists)
+            {
+
+                var hasPawns = table.Any(piece => piece == PieceKind.WhitePawn || piece == PieceKind.BlackPawn);
+                var hasBlackPawns = table.Any(piece => piece == PieceKind.BlackPawn);
+
+                BoardIndexer indexer = !hasPawns ? new NoPawnBoardIndexing(table)
+                    : !hasBlackPawns ? new WhitePawnBoardIndexing(table)
+                    : new GeneralBoardIndexing(table);
                 BoardNormaliser normaliser = hasPawns ? Normalisation.NormalisePawnsBoard : Normalisation.NormaliseNoPawnsBoard;
 
 

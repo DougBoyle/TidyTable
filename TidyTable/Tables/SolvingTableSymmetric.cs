@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using TidyTable.Endgames;
 using TidyTable.TableFormats;
 using static Chessington.GameEngine.AI.Endgame.NormalForm;
 
@@ -247,7 +248,10 @@ namespace TidyTable.Tables
 
             // Simplifies to other table
             // (TODO: Consider En-passant if 1+ pawn either side)
-            if (move.CapturedPiece != (byte)PieceKind.NoPiece || move.PromotionPiece != (byte)PieceKind.NoPiece)
+            if (move.CapturedPiece != (byte)PieceKind.NoPiece 
+                || move.PromotionPiece != (byte)PieceKind.NoPiece
+                || (move.ToIdx == board.EnPassantIndex && BoardIndexing.IsPawn((PieceKind)move.MovingPiece)) // En passant
+            )
             {
                 // Check for insufficient material -> immediate draw
                 if (boardCopy.IsInsufficientMaterial())
